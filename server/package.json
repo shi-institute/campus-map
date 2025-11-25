@@ -1,0 +1,39 @@
+{
+  "name": "campus-map-server",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx watch src/index.ts",
+    "start": "NODE_ENV=production node --experimental-strip-types src/index.ts"
+  },
+  "author": "Jack Buehner",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@koa/router": "^14.0.0",
+    "@xmldom/xmldom": "^0.8.11",
+    "dotenv": "^17.2.3",
+    "fast-extract": "^1.7.5",
+    "knex": "^3.1.0",
+    "koa": "^3.1.1",
+    "koa-body": "^7.0.0",
+    "pg": "^8.16.3",
+    "pg-copy-streams": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/koa": "^3.0.1",
+    "@types/koa__cors": "^5.0.1",
+    "@types/koa__router": "^12.0.5",
+    "@types/pg": "^8.15.6",
+    "@types/pg-copy-streams": "^1.2.5",
+    "@zodios/core": "^10.9.6",
+    "json-schema-to-zod": "^2.7.0",
+    "openapi-typescript": "^7.10.1",
+    "openapi-zod-client": "^1.18.3",
+    "ts-to-zod": "^5.0.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
