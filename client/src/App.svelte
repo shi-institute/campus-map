@@ -7,10 +7,11 @@
     implementZoomOnRightClickAndDrag,
     isGeoJsonLineStringFeatureCollection,
   } from '$lib/utils';
-  import type { MapMouseEvent } from 'maplibre-gl';
+  import { LngLat, type MapMouseEvent } from 'maplibre-gl';
   import {
     CustomControl,
     MapLibre,
+    Marker,
     NavigationControl,
     RasterDEMTileSource,
     RasterLayer,
@@ -49,15 +50,22 @@
     return [parts[1], parts[0]] as [number, number]; // x, y
   });
 
-  function solveRoute() {
+  function solveRoute(
+    map: maplibregl.Map,
+    startLocationCoordinates: maplibregl.LngLatLike,
+    endLocationCoordinates: maplibregl.LngLatLike
+  ) {
     if (!startLocationCoordinates || !endLocationCoordinates || !map) {
       return;
     }
 
-    const startX = startLocationCoordinates[0];
-    const startY = startLocationCoordinates[1];
-    const endX = endLocationCoordinates[0];
-    const endY = endLocationCoordinates[1];
+    const resolvedStart = LngLat.convert(startLocationCoordinates);
+    const resolvedEnd = LngLat.convert(endLocationCoordinates);
+
+    const startX = resolvedStart.lng;
+    const startY = resolvedStart.lat;
+    const endX = resolvedEnd.lng;
+    const endY = resolvedEnd.lat;
     const crs = 'EPSG:4326'; // right click copies lat-lon (WGS 84)
 
     fetch('http://localhost:3000/arcgis/rest/services/FurmanCampusGraph/FU.RoutingServer/solve', {
@@ -99,6 +107,15 @@
         }
       });
   }
+
+  // automatically solve the route when the start or end locations change
+  $effect(() => {
+    if (!map || !startLocationCoordinates || !endLocationCoordinates) {
+      return;
+    }
+
+    solveRoute(map, startLocationCoordinates, endLocationCoordinates);
+  });
 </script>
 
 <MapLibre
@@ -139,7 +156,8 @@
 
     // if the pitch is greater than 0 degrees, add terrain
     if (!map.getTerrain()) {
-      map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+      // TODO: figure out why there are weird glitches when toggling terrain on and off
+      // map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
     }
   }}
 >
@@ -158,11 +176,8 @@
         End location
         <input type="text" bind:value={endLocation} />
       </label>
-      <button
-        onclick={solveRoute}
-        style="all: revert;"
-        disabled={!startLocationCoordinates || !endLocationCoordinates}>Solve Route</button
-      >
+
+      <!-- show the start marker on the map -->
       {#if startLocationCoordinates}
         <Marker lnglat={startLocationCoordinates} color="green" />
       {/if}
@@ -192,7 +207,7 @@
     encoding="terrarium"
     attribution="<a href='https://github.com/tilezen/joerd/blob/master/docs/attribution.md'>Mapzen (Terrain)</a>"
   >
-    <Terrain />
+    <!-- <Terrain /> -->
     <!-- TODO: enable hillshade when in hiking/trails mode -->
     <!-- <HillshadeLayer /> -->
   </RasterDEMTileSource>
