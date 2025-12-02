@@ -3,13 +3,14 @@
 
   interface LeftPaneProps {
     children?: Snippet;
+    title: string;
   }
 
-  let { children }: LeftPaneProps = $props();
+  let { children, title }: LeftPaneProps = $props();
 </script>
 
 <aside>
-  <h1>Left Pane</h1>
+  <h1>{title}</h1>
 
   {@render children?.()}
 </aside>
