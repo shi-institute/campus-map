@@ -1,20 +1,21 @@
 <script lang="ts">
   import { LeftPane } from '$lib/components';
-  import { BellTowerLogo } from '$lib/icons';
-  import SceneFooter from '$lib/map/SceneFooter.svelte';
-  import { copyToClipboard, isGeoJsonLineStringFeatureCollection } from '$lib/utils';
+  import { LogoHeader, SceneFooter, ThemeSwitcher } from '$lib/map';
+  import {
+    copyToClipboard,
+    implementPitchAndRollOnMiddleClickAndDrag,
+    implementZoomOnRightClickAndDrag,
+    isGeoJsonLineStringFeatureCollection,
+  } from '$lib/utils';
   import type { MapMouseEvent } from 'maplibre-gl';
   import {
     CustomControl,
-    GlobeControl,
-    HillshadeLayer,
     MapLibre,
     NavigationControl,
     RasterDEMTileSource,
     RasterLayer,
     RasterTileSource,
     Terrain,
-    TerrainControl,
   } from 'svelte-maplibre-gl';
 
   let center = $state([-82.43915171317023, 34.92549441017741] as [number, number]); // New York City
@@ -108,7 +109,41 @@
   style="http://localhost:3000/arcgis/rest/services/FurmanCampusMap/VectorTileServer/resources/styles/root.json"
   attributionControl={false}
   oncontextmenu={handleRightClick}
+  doubleClickZoom={false}
+  dragPan={true}
+  dragRotate={false}
+  hash={true}
+  maxPitch={85}
+  onload={(event) => {
+    const map = event.target;
+
+    // when zoomed out to world view, use globe projection
+    map.setProjection({ type: 'globe' });
+
+    // zoom in and out with right click and drag
+    implementZoomOnRightClickAndDrag(map);
+
+    // adjust pitch and roll with middle click and drag
+    implementPitchAndRollOnMiddleClickAndDrag(map);
+  }}
+  onpitchend={(event) => {
+    const map = event.target;
+
+    // if the pitch is 0 degrees, remove terrain
+    if (map.transform.pitch === 0) {
+      if (map.getTerrain()) {
+        map.setTerrain(null);
+      }
+      return;
+    }
+
+    // if the pitch is greater than 0 degrees, add terrain
+    if (!map.getTerrain()) {
+      map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+    }
+  }}
 >
+  <LogoHeader />
   <CustomControl position="top-left">
     <LeftPane title="Directions">
       <p>
@@ -132,9 +167,7 @@
   </CustomControl>
   <ThemeSwitcher position="bottom-left" />
   <SceneFooter position="bottom-right" />
-  <NavigationControl />
-  <TerrainControl source="terrain" />
-  <GlobeControl />
+  <NavigationControl position="bottom-right" />
   <RasterTileSource
     tiles={['https://tile.openstreetmap.org/{z}/{x}/{y}.png']}
     maxzoom={19}
