@@ -100,11 +100,6 @@
   }
 </script>
 
-<div class="top-left">
-  <BellTowerLogo width="32" height="32" />
-  <hr />
-  <h1>Campus Map</h1>
-</div>
 <MapLibre
   bind:map
   class="map-container"
@@ -115,7 +110,7 @@
   oncontextmenu={handleRightClick}
 >
   <CustomControl position="top-left">
-    <LeftPane>
+    <LeftPane title="Directions">
       <p>
         Right click the map to copy the coordinates of that location. Then, paste the coordinates into the
         boxes below.
@@ -135,6 +130,7 @@
       >
     </LeftPane>
   </CustomControl>
+  <ThemeSwitcher position="bottom-left" />
   <SceneFooter position="bottom-right" />
   <NavigationControl />
   <TerrainControl source="terrain" />
@@ -144,6 +140,7 @@
     maxzoom={19}
     attribution="&copy; OpenStreetMap contributors"
   >
+    <!-- show the raster tiles before the first layer in the vector tiles, which ensures it is the bottom layer (basemap) -->
     <RasterLayer beforeId="4WD [Road]" paint={{ 'raster-opacity': 0.2 }} />
   </RasterTileSource>
   <RasterDEMTileSource
@@ -155,15 +152,8 @@
     attribution="<a href='https://github.com/tilezen/joerd/blob/master/docs/attribution.md'>Mapzen (Terrain)</a>"
   >
     <Terrain />
-  </RasterDEMTileSource>
-  <RasterDEMTileSource
-    tiles={['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']}
-    minzoom={0}
-    maxzoom={15}
-    encoding="terrarium"
-    attribution="<a href='https://github.com/tilezen/joerd/blob/master/docs/attribution.md'>Mapzen (Terrain)</a>"
-  >
-    <HillshadeLayer />
+    <!-- TODO: enable hillshade when in hiking/trails mode -->
+    <!-- <HillshadeLayer /> -->
   </RasterDEMTileSource>
 </MapLibre>
 
@@ -174,33 +164,5 @@
     inset: 0;
     z-index: 0;
     background-color: white;
-  }
-
-  .top-left {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: fit-content;
-    z-index: 1;
-    font-family: 'Brandon Grotesque', sans-serif;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin: 1rem;
-    user-select: none;
-  }
-
-  .top-left hr {
-    height: 1.5rem;
-    border: none;
-    border-left: 2px solid black;
-    margin: 0;
-  }
-
-  .top-left h1 {
-    font-weight: 700;
-    font-size: 1.5rem;
-    margin: 0;
-    text-shadow: 0 0 2px #ffffff;
   }
 </style>
