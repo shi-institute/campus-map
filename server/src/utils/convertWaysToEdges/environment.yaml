@@ -1,0 +1,6 @@
+name: convert-edges-to-ways
+channels:
+  - conda-forge
+dependencies:
+  - geopandas=1.1
+  - shapely=2.1

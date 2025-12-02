@@ -1,1 +1,2 @@
-export { copyToClipboard } from "./copyToClipboard.js";
+export { copyToClipboard } from './copyToClipboard.js';
+export * from './isGeoJson.js';

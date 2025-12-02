@@ -1,14 +1,20 @@
-import { readdir, readFile } from 'fs/promises';
+import { readdir, readFile, stat } from 'fs/promises';
 import path from 'path';
 
-export const knownServiceTypes = ['VectorTileServer'];
+export const knownServiceTypes = ['VectorTileServer', 'FU.RoutingServer'] as const;
 
 /**
  * Gets child folders from a services directory. A child folder is any folder
  * that does not contain a known service type's `.json` file.
  */
 async function getChildFolders(searchDirectory: string) {
-  const directories = await readdir(searchDirectory);
+  const directories = await readdir(searchDirectory).then(async (items) => {
+    return await Array.fromAsync(items, async (item) => {
+      const itemPath = path.join(searchDirectory, item);
+      const itemStat = await stat(itemPath);
+      return itemStat.isDirectory() ? item : null;
+    }).then((results) => results.filter((item): item is string => item !== null));
+  });
 
   // any directory that is not a known service type is a child folder
   const folders: string[] = [];
@@ -41,7 +47,7 @@ interface ServiceInfo {
   /** The pathname to access the service over HTTP requests */
   pathname: string;
   /** The type of service */
-  type: 'VectorTileServer';
+  type: 'VectorTileServer' | 'FU.RoutingServer';
 }
 
 interface VectorTileServiceInfo extends ServiceInfo {
@@ -75,16 +81,43 @@ async function getVectorTileServices(searchDirectory: string, parentPathname: st
   return services;
 }
 
+async function getFuRoutingServices(searchDirectory: string, parentPathname: string) {
+  // read the services directory
+  const directories = await readdir(searchDirectory);
+
+  // treat directories with FU.RoutingServer.json as routing services
+  // and all other directories as child folders
+  const services: ServiceInfo[] = [];
+  for (const dir of directories) {
+    const dirPath = path.join(searchDirectory, dir);
+    const indexJsonPath = path.join(dirPath, 'FU.RoutingServer.json');
+    try {
+      await readFile(indexJsonPath, 'utf-8');
+      services.push({
+        name: dir,
+        path: dirPath,
+        pathname: path.posix.join(parentPathname, dir, 'FU.RoutingServer'),
+        type: 'FU.RoutingServer',
+      });
+    } catch {}
+  }
+
+  return services;
+}
+
 /**
  * Discovers all services in a given directory and its subdirectories.
  */
 export async function discoverServices(searchDirectory: string, parentPathname = '/') {
   // get the services in the directory
   const vectorTileServices = await getVectorTileServices(searchDirectory, parentPathname);
+  const fuRoutingServices = await getFuRoutingServices(searchDirectory, parentPathname);
   // add additional service types here
 
   // combine all service types and sort alphabetically
-  const allServices: ServiceInfo[] = [...vectorTileServices].sort((a, b) => a.name.localeCompare(b.name));
+  const allServices: ServiceInfo[] = [...vectorTileServices, ...fuRoutingServices].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
 
   // get all services in child folders
   const children = await getChildFolders(searchDirectory).then(async (folders) => {

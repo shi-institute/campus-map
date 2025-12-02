@@ -1,6 +1,12 @@
+import { constants } from './constants.js';
+
 export function getKartDatabaseConnectionString(includeSchema = false) {
-  const url = new URL(`postgresql://localhost:5432/kart${includeSchema ? '/data' : ''}`);
-  url.username = 'campusmap';
-  url.password = 'password';
+  const url = new URL(
+    `postgresql://${constants.database.host}:${constants.database.port}/${constants.database.geodatabase}${
+      includeSchema ? `/${constants.database.geoschema}` : ''
+    }`
+  );
+  url.username = constants.database.username;
+  url.password = constants.database.password;
   return url.toString();
 }

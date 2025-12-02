@@ -42,7 +42,9 @@ export async function initializeKart() {
     console.log('  Pulled latest changes.');
   }
 
-  await generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder);
+  await generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder, {
+    waysLayers: ['data.Trails', 'data.4WD [Road]', 'data.Abandoned Road [Road]'],
+  });
 }
 
 /**

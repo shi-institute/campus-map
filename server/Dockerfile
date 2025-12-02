@@ -37,6 +37,17 @@ RUN git clone --depth=1 https://github.com/felt/tippecanoe.git && \
     cd .. && \
     rm -rf tippecanoe
 
+# install miniforge (conda)
+RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+RUN bash Miniforge3-$(uname)-$(uname -m).sh -b
+RUN rm Miniforge3-$(uname)-$(uname -m).sh
+ENV PATH="/root/miniforge3/bin:${PATH}"
+
+# install conda environment
+COPY ./src/utils/convertWaysToEdges/environment.yaml ./convert-ways-to-edges.environment.yaml
+RUN /root/miniforge3/bin/conda env create -f ./convert-ways-to-edges.environment.yaml -n convert-ways-to-edges
+# RUN echo "source /root/miniforge3/bin/activate convert-ways-to-edges" >> ~/.bashrc
+
 # create the postgres data directory
 RUN mkdir -p $PGDATA && chown postgres:postgres $PGDATA
 RUN sudo -u postgres /usr/lib/postgresql/18/bin/initdb -D $PGDATA
@@ -55,6 +66,8 @@ RUN sudo -u postgres /usr/lib/postgresql/18/bin/pg_ctl -D $PGDATA -o "-c listen_
 WORKDIR /app/server
 COPY ./package*.json ./
 RUN bash -c 'eval "$(fnm env)" && npm install'
+
+# copy over source files
 COPY ./src/ ./src/
 
 # expose port 3000

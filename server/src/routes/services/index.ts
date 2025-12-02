@@ -2,6 +2,7 @@ import Router from '@koa/router';
 import { constants } from '../../utils/constants.js';
 import { inferServiceResponseFormat } from '../../utils/index.js';
 import { discoverServices } from './discoverServices.js';
+import registerRoutingServiceRoutes from './FU.RoutingServer/index.js';
 import { generateArcGisHtmlIndex } from './generateArcGisHtmlIndex.js';
 import registerVectorTileServiceRoutes from './VectorTileServer/index.js';
 
@@ -21,6 +22,15 @@ export default async (router: Router) => {
     .forEach((service) => {
       const serviceRouter = new Router({ prefix: service.pathname });
       registerVectorTileServiceRoutes(serviceRouter, service.path, serviceRootPathname);
+      router.use(serviceRouter.routes());
+    });
+
+  // register all FU.RoutingServer services recursively
+  services.all
+    .filter((service) => service.type === 'FU.RoutingServer')
+    .forEach((service) => {
+      const serviceRouter = new Router({ prefix: service.pathname });
+      registerRoutingServiceRoutes(serviceRouter, service.path, serviceRootPathname);
       router.use(serviceRouter.routes());
     });
 

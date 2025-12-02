@@ -1,12 +1,16 @@
 export { constants } from './constants.js';
 export { constructArcGisWebMap } from './constructArcGisWebMap.js';
+export { convertWaysToEdges } from './convertWaysToEdges/index.js';
 export { exec } from './exec.js';
 export { exportDbGeometryTableToFlatGeobuf } from './exportDbGeometryTableToFlatGeobuf.js';
 export { generateVectorTiles } from './generateVectorTiles.js';
 export { generateVectorTilesForDbGeometryTables } from './generateVectorTilesForDbGeometryTables.js';
+export { getFirstLayerFeatureCount } from './getFirstLayerFeatureCount.js';
+export { getFirstLayerName } from './getFirstLayerName.js';
 export { getKartDatabaseConnectionString } from './getKartDatabaseConnectionString.js';
 export { inferServiceResponseFormat } from './inferServiceResponseFormat.js';
 export { jsonToArcGisHtml } from './jsonToArcGisHtml.js';
 export { kartDatabasePool } from './kartDatabasePool.js';
 export { listDbGeometryTables } from './listDbGeometryTables.js';
+export { routingDatabasePool } from './routingDatabasePool.js';
 export { uncapitalize } from './uncapitalize.js';

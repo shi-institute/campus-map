@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { LeftPane } from '$lib/components';
   import { BellTowerLogo } from '$lib/icons';
   import SceneFooter from '$lib/map/SceneFooter.svelte';
-  import { copyToClipboard } from '$lib/utils';
+  import { copyToClipboard, isGeoJsonLineStringFeatureCollection } from '$lib/utils';
   import type { MapMouseEvent } from 'maplibre-gl';
   import {
+    CustomControl,
     GlobeControl,
     HillshadeLayer,
     MapLibre,
@@ -24,9 +26,77 @@
    * @param event
    */
   function handleRightClick(event: MapMouseEvent) {
-    // copy coordinates to clipboard (lat-lon) (y-x)
+    // copy coordinates to clipboard (lat-lon) (y-x) (EPSG:4326)
     const coordinates = [event.lngLat.lat, event.lngLat.lng];
     copyToClipboard(coordinates.join(', '));
+  }
+
+  let startLocation = $state('');
+  const startLocationCoordinates = $derived.by(() => {
+    const parts = startLocation.split(',').map((part) => parseFloat(part.trim()));
+    if (parts.length !== 2 || parts.some(isNaN)) {
+      return null;
+    }
+    return [parts[1], parts[0]] as [number, number]; // x, y
+  });
+  let endLocation = $state('');
+  const endLocationCoordinates = $derived.by(() => {
+    const parts = endLocation.split(',').map((part) => parseFloat(part.trim()));
+    if (parts.length !== 2 || parts.some(isNaN)) {
+      return null;
+    }
+    return [parts[1], parts[0]] as [number, number]; // x, y
+  });
+
+  function solveRoute() {
+    if (!startLocationCoordinates || !endLocationCoordinates || !map) {
+      return;
+    }
+
+    const startX = startLocationCoordinates[0];
+    const startY = startLocationCoordinates[1];
+    const endX = endLocationCoordinates[0];
+    const endY = endLocationCoordinates[1];
+    const crs = 'EPSG:4326'; // right click copies lat-lon (WGS 84)
+
+    fetch('http://localhost:3000/arcgis/rest/services/FurmanCampusGraph/FU.RoutingServer/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startX, startY, endX, endY, crs }),
+    })
+      .then((res) => res.json())
+      .then((json) => {
+        if (isGeoJsonLineStringFeatureCollection(json)) {
+          return json;
+        } else {
+          if (map?.getSource('route-source')) {
+            map.removeLayer('route-layer');
+            map.removeSource('route-source');
+          }
+
+          throw new Error('Invalid GeoJSON response');
+        }
+      })
+      .then((geojson) => {
+        if (!map) {
+          return;
+        }
+
+        // add the route lines to the map
+        const sourceId = 'route-source';
+        if (map.getSource(sourceId)) {
+          (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojson);
+        } else {
+          map.addSource(sourceId, { type: 'geojson', data: geojson });
+          map.addLayer({
+            id: 'route-layer',
+            type: 'line',
+            source: sourceId,
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#ff0000', 'line-width': 6 },
+          });
+        }
+      });
   }
 </script>
 
@@ -44,6 +114,27 @@
   attributionControl={false}
   oncontextmenu={handleRightClick}
 >
+  <CustomControl position="top-left">
+    <LeftPane>
+      <p>
+        Right click the map to copy the coordinates of that location. Then, paste the coordinates into the
+        boxes below.
+      </p>
+      <label for="">
+        Start location
+        <input type="text" bind:value={startLocation} />
+      </label>
+      <label for="">
+        End location
+        <input type="text" bind:value={endLocation} />
+      </label>
+      <button
+        onclick={solveRoute}
+        style="all: revert;"
+        disabled={!startLocationCoordinates || !endLocationCoordinates}>Solve Route</button
+      >
+    </LeftPane>
+  </CustomControl>
   <SceneFooter position="bottom-right" />
   <NavigationControl />
   <TerrainControl source="terrain" />

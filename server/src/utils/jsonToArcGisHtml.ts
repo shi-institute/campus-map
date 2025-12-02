@@ -4,7 +4,7 @@ import { constants } from './index.js';
 
 interface DataInput {
   data: Record<string, unknown>;
-  center: { latitude?: number; longitude?: number; zoom?: number };
+  center?: { latitude?: number; longitude?: number; zoom?: number };
 }
 
 interface RouteInput {
@@ -34,7 +34,7 @@ export function jsonToArcGisHtml(
 
   // extract service type and name from URL
   const pathParts = url.pathname.split('/');
-  const type = pathParts[pathParts.length - 1] as 'VectorTileServer';
+  const type = pathParts[pathParts.length - 1] as 'VectorTileServer' | 'FU.RoutingServer';
   const serviceName = pathParts[pathParts.length - 2];
 
   const space = () => document.createTextNode('\u00A0\u00A0');
@@ -92,7 +92,7 @@ export function jsonToArcGisHtml(
     const partLinks = pathParts.reduce((acc, part) => {
       cumulativePath += `/${part}`;
 
-      if (knownServiceTypes.includes(part)) {
+      if ((knownServiceTypes as readonly string[]).includes(part)) {
         const previousPartElem = acc.pop();
         const previousPartElemTextNode = previousPartElem?.firstChild;
         if (previousPartElemTextNode && previousPartElemTextNode.nodeType === previousPartElem.TEXT_NODE) {
@@ -161,25 +161,27 @@ export function jsonToArcGisHtml(
 
   // view in links
   var linkElements: Element[] = [];
-  const viewInJsApiLink = document.createElement('a');
-  viewInJsApiLink.setAttribute('href', `?f=jsapi`);
-  viewInJsApiLink.appendChild(document.createTextNode('ArcGIS JavaScript'));
-  linkElements.push(viewInJsApiLink);
-  const viewInArcGISOnlineLink = document.createElement('a');
-  viewInArcGISOnlineLink.setAttribute(
-    'href',
-    `https://www.arcgis.com/apps/mapviewer/index.html?url=${encodeURIComponent(url.toString())}`
-  );
-  viewInArcGISOnlineLink.appendChild(document.createTextNode('ArcGIS Online'));
-  linkElements.push(viewInArcGISOnlineLink);
-  const viewInFurmanGisLink = document.createElement('a');
-  viewInFurmanGisLink.setAttribute(
-    'href',
-    `https://gis.furman.edu/portal/apps/mapviewer/index.html?url=${encodeURIComponent(url.toString())}`
-  );
-  viewInFurmanGisLink.appendChild(document.createTextNode('Furman GIS Portal'));
-  linkElements.push(viewInFurmanGisLink);
   if (type === 'VectorTileServer') {
+    const viewInJsApiLink = document.createElement('a');
+    viewInJsApiLink.setAttribute('href', `?f=jsapi`);
+    viewInJsApiLink.appendChild(document.createTextNode('ArcGIS JavaScript'));
+    linkElements.push(viewInJsApiLink);
+    const viewInArcGISOnlineLink = document.createElement('a');
+    viewInArcGISOnlineLink.setAttribute(
+      'href',
+      `https://www.arcgis.com/apps/mapviewer/index.html?url=${encodeURIComponent(url.toString())}`
+    );
+    viewInArcGISOnlineLink.appendChild(document.createTextNode('ArcGIS Online'));
+    linkElements.push(viewInArcGISOnlineLink);
+    const viewInFurmanGisLink = document.createElement('a');
+    viewInFurmanGisLink.setAttribute(
+      'href',
+      `https://gis.furman.edu/portal/apps/mapviewer/index.html?url=${encodeURIComponent(url.toString())}`
+    );
+    viewInFurmanGisLink.appendChild(document.createTextNode('Furman GIS Portal'));
+    linkElements.push(viewInFurmanGisLink);
+  }
+  if (type === 'VectorTileServer' && center) {
     const viewInMaputnikLink = document.createElement('a');
     const centerHash =
       center.latitude && center.longitude && center.zoom
@@ -193,6 +195,12 @@ export function jsonToArcGisHtml(
     linkElements.push(viewInMaputnikLink);
   }
   if (type === 'VectorTileServer' && serviceName === 'FurmanCampusMap' && process.env.CAMPUS_MAP_WEB_URL) {
+    const viewInCampusMapLink = document.createElement('a');
+    viewInCampusMapLink.setAttribute('href', process.env.CAMPUS_MAP_WEB_URL);
+    viewInCampusMapLink.appendChild(document.createTextNode('Furman Campus Map'));
+    linkElements.push(viewInCampusMapLink);
+  }
+  if (type === 'FU.RoutingServer' && serviceName === 'FurmanCampusGraph' && process.env.CAMPUS_MAP_WEB_URL) {
     const viewInCampusMapLink = document.createElement('a');
     viewInCampusMapLink.setAttribute('href', process.env.CAMPUS_MAP_WEB_URL);
     viewInCampusMapLink.appendChild(document.createTextNode('Furman Campus Map'));
