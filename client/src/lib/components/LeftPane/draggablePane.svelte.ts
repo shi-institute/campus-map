@@ -18,15 +18,22 @@ interface PaneDragOptions {
   };
   /** Once dragging has occured this amount, pointer events will be blocked. Useful for users who have a tendency to hold left click down and start moving their mouse before releasing. Defaults to 5 pixels. */
   pointerEventsBlockThreshold?: number;
+  /** Whether we should even listen for pointer events. */
+  shouldListen?: boolean;
 }
 
 export function draggablePane({
+  shouldListen = true,
   setMinimized,
   minHeight = 10,
   maxHeight,
   mobile = { screenWidthCutoff: 540, offsetX: convertRemToPixels(1), expandX: convertRemToPixels(2) },
   pointerEventsBlockThreshold = 5,
 }: PaneDragOptions): Attachment {
+  if (!shouldListen) {
+    return (() => {}) satisfies Attachment;
+  }
+
   return ((draggableElement: Element) => {
     let isDragging = false;
     let isMouseDown = false;
@@ -221,29 +228,44 @@ export function draggablePane({
      * Listens for pointer up events on the document to end dragging
      */
     function handleDragEnd() {
+      if (!draggableElement || !(draggableElement instanceof HTMLElement)) {
+        return resetVariables();
+      }
+
+      if (isBlockingAdditionalPointerEvents) {
+        // compute the final velocity
+        const velocity = computeVelocity();
+
+        // if the final velocity is downward and significant, minimize the pane
+        if (velocity > 1) {
+          setMinimized(true);
+        }
+
+        // if the final velocity is upward and significant, restore the pane
+        else if (velocity < -1) {
+          setMinimized(false);
+        }
+
+        // if the final height is less than half of the maximum/full height, minimize the pane
+        else {
+          const currentHeight = draggableElement.offsetHeight;
+          setMinimized(currentHeight < maxHeight / 2);
+        }
+      }
+
+      return resetVariables();
+    }
+
+    function resetVariables() {
       isMouseDown = false;
       isDragging = false;
       isBlockingAdditionalPointerEvents = false;
 
-      if (!draggableElement || !(draggableElement instanceof HTMLElement)) return;
+      // clear movement samples
+      movementSamples = [];
 
-      // compute the final velocity
-      const velocity = computeVelocity();
-
-      // if the final velocity is downward and significant, minimize the pane
-      if (velocity > 1) {
-        setMinimized(true);
-      }
-
-      // if the final velocity is upward and significant, restore the pane
-      else if (velocity < -1) {
-        setMinimized(false);
-      }
-
-      // if the final height is less than half of the maximum/full height, minimize the pane
-      else {
-        const currentHeight = draggableElement.offsetHeight;
-        setMinimized(currentHeight < maxHeight / 2);
+      if (!draggableElement || !(draggableElement instanceof HTMLElement)) {
+        return resetVariables();
       }
 
       // clear any inline style
@@ -251,9 +273,6 @@ export function draggablePane({
       draggableElement.style.transform = '';
       draggableElement.style.width = '';
       draggableElement.style.pointerEvents = ''; // re-enable pointer events
-
-      // clear movement samples
-      movementSamples = [];
     }
   }) satisfies Attachment;
 }

@@ -1,10 +1,11 @@
 <script lang="ts">
   import { convertRemToPixels } from '$lib/utils';
   import type { Snippet } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { IconButton } from '..';
   import { draggablePane } from './draggablePane.svelte';
 
-  interface LeftPaneProps {
+  export interface LeftPaneProps {
     children?: Snippet;
     title: string;
     mapFrameHeight: number;
@@ -13,6 +14,10 @@
     open: boolean;
     /** Whether the pane is minimized when it is open. */
     minimized: boolean;
+    /** Whether the pane is visible at all. When false, the pane will still exist, but it will be transparent and the inner content will not be rendered. Defaults to `true`. */
+    visible?: boolean;
+    /** Hides the close button from the pane titlebar. */
+    hideCloseButton?: boolean;
   }
 
   let {
@@ -22,6 +27,8 @@
     mapFrameWidth,
     minimized = $bindable(),
     open = $bindable(),
+    visible = $bindable(true),
+    hideCloseButton = false,
   }: LeftPaneProps = $props();
 </script>
 
@@ -29,9 +36,13 @@
   style:--map-frame-height={mapFrameHeight + 'px'}
   style:--map-frame-width={mapFrameWidth + 'px'}
   class:minimized
+  class:invisible={!visible}
   class:closed={!open}
   {@attach draggablePane({
-    setMinimized: (value: boolean) => (minimized = value),
+    shouldListen: visible,
+    setMinimized: (value: boolean) => {
+      minimized = value;
+    },
     minHeight: convertRemToPixels(3),
     maxHeight: mapFrameHeight - convertRemToPixels(5),
   })}
@@ -55,18 +66,26 @@
         </svg>
       {/if}
     </IconButton>
-    <IconButton size="14px" onclick={() => (open = false)}>
-      <svg viewBox="0 0 24 24">
-        <path
-          d="m4.21 4.387.083-.094a1 1 0 0 1 1.32-.083l.094.083L12 10.585l6.293-6.292a1 1 0 1 1 1.414 1.414L13.415 12l6.292 6.293a1 1 0 0 1 .083 1.32l-.083.094a1 1 0 0 1-1.32.083l-.094-.083L12 13.415l-6.293 6.292a1 1 0 0 1-1.414-1.414L10.585 12 4.293 5.707a1 1 0 0 1-.083-1.32l.083-.094-.083.094Z"
-          fill="currentColor"
-        />
-      </svg>
-    </IconButton>
+    {#if !hideCloseButton}
+      <IconButton size="14px" onclick={() => (open = false)}>
+        <svg viewBox="0 0 24 24">
+          <path
+            d="m4.21 4.387.083-.094a1 1 0 0 1 1.32-.083l.094.083L12 10.585l6.293-6.292a1 1 0 1 1 1.414 1.414L13.415 12l6.292 6.293a1 1 0 0 1 .083 1.32l-.083.094a1 1 0 0 1-1.32.083l-.094-.083L12 13.415l-6.293 6.292a1 1 0 0 1-1.414-1.414L10.585 12 4.293 5.707a1 1 0 0 1-.083-1.32l.083-.094-.083.094Z"
+            fill="currentColor"
+          />
+        </svg>
+      </IconButton>
+    {/if}
   </div>
 
-  <div class="content">
-    {@render children?.()}
+  <div class="content-area">
+    {#key visible}
+      <div class="content" in:fade={{ duration: 300 }} out:fade={{ duration: 300 }}>
+        {#if !closed && visible}
+          {@render children?.()}
+        {/if}
+      </div>
+    {/key}
   </div>
 </aside>
 
@@ -103,6 +122,11 @@
     overflow: hidden;
     transition-duration: 900ms;
   }
+  aside.invisible {
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+  }
 
   @media (width <= 940px) {
     aside {
@@ -118,11 +142,11 @@
 
   @media (width <= 540px) {
     aside {
-      width: calc(100% + 1rem);
+      width: 100%;
       transform: translateX(-1rem);
     }
     aside.minimized {
-      width: calc(100% - 1rem);
+      width: calc(100% - 2rem);
       transform: translateX(0);
     }
   }
@@ -150,10 +174,11 @@
     font-weight: 500;
   }
 
-  .content {
+  .content-area {
     flex-grow: 1;
     flex-shrink: 1;
     padding: 0.5rem 1rem;
     overflow: auto;
+    position: relative;
   }
 </style>

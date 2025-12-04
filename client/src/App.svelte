@@ -10,6 +10,8 @@
   import { LngLat, type MapMouseEvent } from 'maplibre-gl';
   import {
     CustomControl,
+    GeoJSONSource,
+    LineLayer,
     MapLibre,
     Marker,
     NavigationControl,
@@ -52,6 +54,8 @@
     return [parts[1], parts[0]] as [number, number]; // x, y
   });
 
+  let solvedRouteGeoJson = $state<GeoJSON.FeatureCollection<GeoJSON.LineString> | null>(null);
+
   function solveRoute(
     map: maplibregl.Map,
     startLocationCoordinates: maplibregl.LngLatLike,
@@ -80,33 +84,12 @@
         if (isGeoJsonLineStringFeatureCollection(json)) {
           return json;
         } else {
-          if (map?.getSource('route-source')) {
-            map.removeLayer('route-layer');
-            map.removeSource('route-source');
-          }
-
+          solvedRouteGeoJson = null;
           throw new Error('Invalid GeoJSON response');
         }
       })
       .then((geojson) => {
-        if (!map) {
-          return;
-        }
-
-        // add the route lines to the map
-        const sourceId = 'route-source';
-        if (map.getSource(sourceId)) {
-          (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojson);
-        } else {
-          map.addSource(sourceId, { type: 'geojson', data: geojson });
-          map.addLayer({
-            id: 'route-layer',
-            type: 'line',
-            source: sourceId,
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#ff0000', 'line-width': 6 },
-          });
-        }
+        solvedRouteGeoJson = geojson;
       });
   }
 
@@ -117,10 +100,7 @@
     }
 
     if (!startLocationCoordinates || !endLocationCoordinates) {
-      if (map.getSource('route-source')) {
-        map.removeLayer('route-layer');
-        map.removeSource('route-source');
-      }
+      solvedRouteGeoJson = null;
       return;
     }
 
@@ -129,6 +109,10 @@
 
   // handle map clicks to set start and end locations
   function handleClick(event: MapMouseEvent) {
+    if (visiblePane !== 'navigation') {
+      return;
+    }
+
     panesAreMinimized = false;
     navigationPaneIsOpen = true;
 
@@ -143,8 +127,33 @@
     }
   }
 
+  // clear route information when the navigation pane is closed
+  $effect(() => {
+    if (!navigationPaneIsOpen) {
+      startLocation = '';
+      endLocation = '';
+      solvedRouteGeoJson = null;
+    }
+  });
+
   let panesAreMinimized = $state(true);
-  let navigationPaneIsOpen = $state(true);
+  let searchPaneIsOpen = $state(true);
+  let navigationPaneIsOpen = $state(false);
+
+  let visiblePane = $derived.by(() => {
+    // if the navigation pane is open, show it
+    if (navigationPaneIsOpen) {
+      return 'navigation';
+    }
+
+    // if the search pane is open, show it
+    if (searchPaneIsOpen) {
+      return 'search';
+    }
+
+    // otherwise, show nothing
+    return null;
+  });
 </script>
 
 <div
@@ -200,13 +209,14 @@
     onclick={handleClick}
   >
     <LogoHeader />
-    <CustomControl position="bottom-left">
+    <CustomControl position="bottom-left" class="pane-control">
       <LeftPane
         title="Directions"
         {mapFrameHeight}
         {mapFrameWidth}
         bind:minimized={panesAreMinimized}
         bind:open={navigationPaneIsOpen}
+        visible={visiblePane === 'navigation'}
       >
         <p>
           Right click the map to copy the coordinates of that location. Then, paste the coordinates into the
@@ -238,6 +248,42 @@
         {#if endLocationCoordinates}
           <Marker lnglat={endLocationCoordinates} color="red" />
         {/if}
+
+        <!-- show the solved route -->
+        <GeoJSONSource
+          id="solved-route-source"
+          data={solvedRouteGeoJson ?? { type: 'FeatureCollection', features: [] }}
+        >
+          <LineLayer
+            id="solved-route-outline"
+            layout={{ 'line-join': 'round', 'line-cap': 'round' }}
+            paint={{ 'line-color': '#010ed6', 'line-width': 10 }}
+          />
+          <LineLayer
+            id="solved-route"
+            layout={{ 'line-join': 'round', 'line-cap': 'round' }}
+            paint={{ 'line-color': '#0d53ff', 'line-width': 6 }}
+          />
+        </GeoJSONSource>
+      </LeftPane>
+
+      <LeftPane
+        title="Search"
+        {mapFrameHeight}
+        {mapFrameWidth}
+        bind:minimized={panesAreMinimized}
+        bind:open={searchPaneIsOpen}
+        visible={visiblePane === 'search'}
+        hideCloseButton
+      >
+        <button
+          onclick={() => {
+            visiblePane = 'navigation';
+            navigationPaneIsOpen = true;
+          }}
+        >
+          Get directions
+        </button>
       </LeftPane>
     </CustomControl>
     <SceneFooter position="bottom-right" />
@@ -277,5 +323,20 @@
   .map-frame :global(.map-container) {
     position: absolute;
     inset: 0;
+  }
+
+  :global(.maplibregl-ctrl-bottom-left) {
+    width: 100%;
+    z-index: 3;
+  }
+
+  :global(.maplibregl-ctrl-bottom-left .pane-control) {
+    position: relative;
+    width: 100%;
+  }
+
+  :global(.maplibregl-ctrl-bottom-left .pane-control > aside) {
+    position: absolute;
+    bottom: 0;
   }
 </style>
