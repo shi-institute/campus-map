@@ -50,7 +50,13 @@
     maxHeight: mapFrameHeight - convertRemToPixels(5),
   })}
 >
-  <div class="header-bar">
+  <div
+    class="header-bar"
+    ondblclick={() => (minimized = !minimized)}
+    role="toolbar"
+    aria-label="{title} pane controls"
+    tabindex="0"
+  >
     <h1>{title}</h1>
     <IconButton onclick={() => (minimized = !minimized)}>
       {#if minimized}
