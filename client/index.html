@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <link rel="stylesheet" href="/fonts.css" />
+    <link rel="stylesheet" href="/maplibre.css" />
+    <link rel="stylesheet" href="/winui.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Furman University Campus Map</title>
   </head>
@@ -11,4 +13,13 @@
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
+  <style>
+    :root {
+      --easing-expo-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .maplibregl-map {
+      font: inherit;
+    }
+  </style>
 </html>
