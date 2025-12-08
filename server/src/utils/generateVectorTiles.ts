@@ -57,6 +57,8 @@ export async function generateVectorTiles(inputFolder: string, outputFolder: str
     '--extend-zooms-if-still-dropping',
     '--force', // overwrite existing files
     '--read-parallel', // read input files in parallel
+    '--use-attribute-for-id',
+    'auto_pk', // use the "auto_pk" attribute as the unique feature id
     ...inputOptions,
   ].join(' ');
 
@@ -64,7 +66,7 @@ export async function generateVectorTiles(inputFolder: string, outputFolder: str
   await exec(tippecanoeCmd, true, true);
 
   // clean up the working directory
-  await rm(workingDir, { recursive: true });
+  // await rm(workingDir, { recursive: true });
 
   // read the metadata json
   const metadataJsonPath = path.join(tileGenOutputDir, 'metadata.json');

@@ -11,7 +11,14 @@ export async function getFirstLayerName(layerPath: string) {
 
   // Match something like: "1: 4WD [Road] (Multi Line String)"
   const layerNameMatch = stdout.match(/^\s*\d+:\s*(.+?)\s*\(/m);
+
   if (!layerNameMatch || layerNameMatch.length < 2) {
+    // Match fallback: "1: 4WD [Road]"
+    const fallbackLayerNameMatch = stdout.match(/^\s*\d+:\s*(.+?)\s*$/m);
+    if (fallbackLayerNameMatch && fallbackLayerNameMatch.length >= 2) {
+      return fallbackLayerNameMatch[1];
+    }
+
     throw new Error(`Could not parse layer name from ogrinfo output for path: ${layerPath}`);
   }
 
