@@ -22,6 +22,21 @@ JSON.parse = function (text, reviver, { skipBigIntRestore = false } = {}) {
   });
 };
 
+// add event listeners for pushState and replaceState to detect URL changes
+const originalPushState = history.pushState;
+history.pushState = function (...args) {
+  const result = originalPushState.apply(this, args);
+  window.dispatchEvent(new Event('pushstate'));
+  return result;
+};
+
+const originalReplaceState = history.replaceState;
+history.replaceState = function (...args) {
+  const result = originalReplaceState.apply(this, args);
+  window.dispatchEvent(new Event('replacestate'));
+  return result;
+};
+
 // // ensure fetched JSON responses parse BigInts correctly
 // const originalResponseJson = Response.prototype.json;
 // Response.prototype.json = async function (...args) {
