@@ -1,22 +1,19 @@
 <script lang="ts">
   import { LeftPane } from '$lib/components';
-  import { LogoHeader, SceneFooter, ThemeSwitcher } from '$lib/map';
+  import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
   import {
     copyToClipboard,
     implementPitchAndRollOnMiddleClickAndDrag,
     implementZoomOnRightClickAndDrag,
-    isGeoJsonLineStringFeatureCollection,
     queryFeatureServices,
     useAsync,
     with_previous,
   } from '$lib/utils';
   import { centroid as computeCentroid } from '@turf/centroid';
-  import { GeoJSONFeature, LngLat, type MapMouseEvent } from 'maplibre-gl';
+  import { GeoJSONFeature, type MapMouseEvent } from 'maplibre-gl';
   import { onMount, untrack } from 'svelte';
   import {
     CustomControl,
-    GeoJSONSource,
-    LineLayer,
     MapLibre,
     Marker,
     NavigationControl,
@@ -25,7 +22,6 @@
     RasterTileSource,
   } from 'svelte-maplibre-gl';
   import { SvelteURL } from 'svelte/reactivity';
-  import { decode } from 'zod/mini';
 
   // URL that we can manipulate that will update the browser URL on change
   let url = $state(new SvelteURL(window.location.href));
@@ -69,75 +65,6 @@
     const coordinates = [event.lngLat.lat, event.lngLat.lng];
     copyToClipboard(coordinates.join(', '));
   }
-
-  let startLocation = $state('');
-  const startLocationCoordinates = $derived.by(() => {
-    const parts = startLocation.split(',').map((part) => parseFloat(part.trim()));
-    if (parts.length !== 2 || parts.some(isNaN)) {
-      return null;
-    }
-    return [parts[1], parts[0]] as [number, number]; // x, y
-  });
-  let endLocation = $state('');
-  const endLocationCoordinates = $derived.by(() => {
-    const parts = endLocation.split(',').map((part) => parseFloat(part.trim()));
-    if (parts.length !== 2 || parts.some(isNaN)) {
-      return null;
-    }
-    return [parts[1], parts[0]] as [number, number]; // x, y
-  });
-
-  let solvedRouteGeoJson = $state<GeoJSON.FeatureCollection<GeoJSON.LineString> | null>(null);
-  function solveRoute(
-    map: maplibregl.Map,
-    startLocationCoordinates: maplibregl.LngLatLike,
-    endLocationCoordinates: maplibregl.LngLatLike
-  ) {
-    if (!startLocationCoordinates || !endLocationCoordinates || !map) {
-      return;
-    }
-
-    const resolvedStart = LngLat.convert(startLocationCoordinates);
-    const resolvedEnd = LngLat.convert(endLocationCoordinates);
-
-    const startX = resolvedStart.lng;
-    const startY = resolvedStart.lat;
-    const endX = resolvedEnd.lng;
-    const endY = resolvedEnd.lat;
-    const crs = 'EPSG:4326'; // right click copies lat-lon (WGS 84)
-
-    fetch(`${import.meta.env.VITE_MAP_SERVER_URL}/rest/services/FurmanCampusGraph/FU.RoutingServer/solve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ startX, startY, endX, endY, crs }),
-    })
-      .then((res) => res.json())
-      .then((json) => {
-        if (isGeoJsonLineStringFeatureCollection(json)) {
-          return json;
-        } else {
-          solvedRouteGeoJson = null;
-          throw new Error('Invalid GeoJSON response');
-        }
-      })
-      .then((geojson) => {
-        solvedRouteGeoJson = geojson;
-      });
-  }
-
-  // automatically solve the route when the start or end locations change
-  $effect(() => {
-    if (!map) {
-      return;
-    }
-
-    if (!startLocationCoordinates || !endLocationCoordinates) {
-      solvedRouteGeoJson = null;
-      return;
-    }
-
-    solveRoute(map, startLocationCoordinates, endLocationCoordinates);
-  });
 
   let searchBoxValue = $state('');
   const searchResult = useAsync(async (abortSignal, skip) => {
@@ -188,35 +115,6 @@
 
       return { ...featureCollection, features: processedFeatures };
     });
-  });
-
-  // handle map clicks to set start and end locations
-  function handleClick(event: MapMouseEvent) {
-    if (visiblePane !== 'navigation') {
-      return;
-    }
-
-    panesAreMinimized = false;
-    navigationPaneIsOpen = true;
-
-    if (!startLocation) {
-      startLocation = `${event.lngLat.lat}, ${event.lngLat.lng}`;
-      return;
-    }
-
-    if (!endLocation) {
-      endLocation = `${event.lngLat.lat}, ${event.lngLat.lng}`;
-      return;
-    }
-  }
-
-  // clear route information when the navigation pane is closed
-  $effect(() => {
-    if (!navigationPaneIsOpen) {
-      startLocation = '';
-      endLocation = '';
-      solvedRouteGeoJson = null;
-    }
   });
 
   let panesAreMinimized = $state(true);
@@ -444,66 +342,16 @@
         // map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
       }
     }}
-    onclick={handleClick}
   >
     <LogoHeader />
     <CustomControl position="bottom-left" class="pane-control">
-      <LeftPane
-        title="Directions"
+      <Panes.Directions
         {mapFrameHeight}
         {mapFrameWidth}
         bind:minimized={panesAreMinimized}
         bind:open={navigationPaneIsOpen}
         visible={visiblePane === 'navigation'}
-      >
-        <p>
-          Right click the map to copy the coordinates of that location. Then, paste the coordinates into the
-          boxes below.
-        </p>
-        <div><label for="start-location"> Start location </label></div>
-        <input
-          type="text"
-          id="start-location"
-          bind:value={startLocation}
-          placeholder="Click a location on the map"
-        />
-        <button onclick={() => (startLocation = '')}>clear</button>
-        <div><label for="end-location"> End location </label></div>
-        <input
-          type="text"
-          id="end-location"
-          bind:value={endLocation}
-          placeholder={startLocationCoordinates ? 'Click a location on the map' : ''}
-        />
-        <button onclick={() => (endLocation = '')}>clear</button>
-
-        <!-- show the start marker on the map -->
-        {#if startLocationCoordinates}
-          <Marker lnglat={startLocationCoordinates} color="green" />
-        {/if}
-
-        <!-- show the end marker on the map -->
-        {#if endLocationCoordinates}
-          <Marker lnglat={endLocationCoordinates} color="red" />
-        {/if}
-
-        <!-- show the solved route -->
-        <GeoJSONSource
-          id="solved-route-source"
-          data={solvedRouteGeoJson ?? { type: 'FeatureCollection', features: [] }}
-        >
-          <LineLayer
-            id="solved-route-outline"
-            layout={{ 'line-join': 'round', 'line-cap': 'round' }}
-            paint={{ 'line-color': '#010ed6', 'line-width': 10 }}
-          />
-          <LineLayer
-            id="solved-route"
-            layout={{ 'line-join': 'round', 'line-cap': 'round' }}
-            paint={{ 'line-color': '#0d53ff', 'line-width': 6 }}
-          />
-        </GeoJSONSource>
-      </LeftPane>
+      />
 
       <LeftPane
         title="Place Information"
