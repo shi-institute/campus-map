@@ -300,7 +300,7 @@
       attribution="&copy; OpenStreetMap contributors"
     >
       <!-- show the raster tiles before the first layer in the vector tiles, which ensures it is the bottom layer (basemap) -->
-      <RasterLayer beforeId="4WD [Road]" paint={{ 'raster-opacity': 0.2 }} />
+      <RasterLayer beforeId="4wd_road_provisional" paint={{ 'raster-opacity': 0.2 }} />
     </RasterTileSource>
     <RasterDEMTileSource
       id="terrain"

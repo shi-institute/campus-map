@@ -29,8 +29,8 @@ export async function exportDbGeometryTableToFlatGeobuf(
     await exec(
       `ogr2ogr -f FlatGeobuf '${exportPath}' 'PG:${
         pool.options.connectionString
-      }' -sql "SELECT *, auto_pk::text FROM \\"${schema}\\".\\"${tableName}\\"" -nln '${tableName}' ${
-        // cast auto_pk to text necause ogr2ogr drops big ints
+      }' -sql "SELECT *, fid::text FROM \\"${schema}\\".\\"${tableName}\\"" -nln '${tableName}' ${
+        // cast fid to text necause ogr2ogr drops big ints
         generateIndex ? '-lco SPATIAL_INDEX=YES' : ''
       } -progress --debug on`,
       true,

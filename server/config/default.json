@@ -5,7 +5,15 @@
     "database": "kart",
     "user": "campusmap",
     "password": "password",
-    "objectIdField": "auto_pk",
+    "objectIdField": "fid",
     "pgLimit": 10000000
+  },
+  "campusmap": {
+    "waysLayers": [
+      "data.trails_provisional",
+      "data.4wd_road_provisional",
+      "data.abandoned_road_provisional",
+      "data.sidewalks_provisional"
+    ]
   }
 }

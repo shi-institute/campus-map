@@ -140,10 +140,10 @@ export async function queryFeatureServices(
         const mergedFeatures = results
           .flatMap(({ layerId, geojson }) =>
             geojson.features.map((feature) => {
-              // omit features that are missing the id (auto_pk field)
-              const id = feature.properties?.auto_pk;
+              // omit features that are missing the id (fid field)
+              const id = feature.properties?.fid;
               if (typeof id !== 'number') {
-                console.error(`Feature is missing 'auto_pk' property for id in layer: ${layerId}`);
+                console.error(`Feature is missing 'fid' property for id in layer: ${layerId}`);
                 return null;
               }
 

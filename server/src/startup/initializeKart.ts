@@ -1,3 +1,4 @@
+import config from 'config';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
@@ -43,7 +44,7 @@ export async function initializeKart() {
   }
 
   await generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder, {
-    waysLayers: ['data.Trails', 'data.4WD [Road]', 'data.Abandoned Road [Road]'],
+    waysLayers: config.get<string[]>('campusmap.waysLayers'),
   });
 }
 

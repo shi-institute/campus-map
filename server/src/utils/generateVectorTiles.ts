@@ -58,7 +58,7 @@ export async function generateVectorTiles(inputFolder: string, outputFolder: str
     '--force', // overwrite existing files
     '--read-parallel', // read input files in parallel
     '--use-attribute-for-id',
-    'auto_pk', // use the "auto_pk" attribute as the unique feature id
+    'fid', // use the "fid" attribute as the unique feature id
     ...inputOptions,
   ].join(' ');
 

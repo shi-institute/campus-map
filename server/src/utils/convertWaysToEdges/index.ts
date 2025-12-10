@@ -38,6 +38,11 @@ result = convert_ways_to_edges(ways_path, ${connectionTolerance}, ${minimumEdgeL
     allowOrphans ? 'False' : 'True'
   }, '${intermediateCrs}')
 
+# remove fid columns (edge_id is and way_id are our new unique identifiers)
+# (any column named fid or fid{number} will be removed)
+fid_columns = [col for col in result['edges'].columns if col == 'fid' or col.startswith('fid') and col[3:].isdigit()]
+result['edges'] = result['edges'].drop(columns=fid_columns)
+
 # save edges to geopackage
 print('Saving edges to ${edgesPath}...')
 result['edges'].to_file('${edgesPath}')
@@ -46,9 +51,9 @@ result['edges'].to_file('${edgesPath}')
 `;
 
   const command = `
-  $(conda info --base)/bin/conda run --name convert-ways-to-edges --cwd "${
+  $(conda info --base)/bin/conda run --live-stream --name convert-ways-to-edges --cwd "${
     import.meta.dirname
-  }" python -c """${pythonCode}"""
+  }" python -u -c """${pythonCode}"""
 `;
 
   await exec(command, true, true);

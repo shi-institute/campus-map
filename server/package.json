@@ -26,6 +26,7 @@
     "pg-copy-streams": "^7.0.0"
   },
   "devDependencies": {
+    "@types/config": "^3.3.5",
     "@types/koa": "^3.0.1",
     "@types/koa__cors": "^5.0.1",
     "@types/koa__router": "^12.0.5",
