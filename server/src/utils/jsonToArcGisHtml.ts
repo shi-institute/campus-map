@@ -188,6 +188,14 @@ export function jsonToArcGisHtml(
     viewInJsApiLink.setAttribute('href', `?f=jsapi`);
     viewInJsApiLink.appendChild(document.createTextNode('ArcGIS JavaScript'));
     linkElements.push(viewInJsApiLink);
+  }
+  if (type === 'FeatureServer') {
+    const viewInArcGisProLink = document.createElement('a');
+    viewInArcGisProLink.setAttribute('href', `?f=pitemx`);
+    viewInArcGisProLink.appendChild(document.createTextNode('ArcGIS Pro'));
+    linkElements.push(viewInArcGisProLink);
+  }
+  if (type === 'VectorTileServer' || type === 'FeatureServer') {
     const viewInArcGISOnlineLink = document.createElement('a');
     viewInArcGISOnlineLink.setAttribute(
       'href',

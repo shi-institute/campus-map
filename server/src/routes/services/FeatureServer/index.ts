@@ -42,6 +42,17 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
       return;
     }
 
+    if (format === 'pitemx') {
+      ctx.type = 'application/octet-stream';
+      ctx.set('Content-Disposition', `attachment; filename="${serviceName}.pitemx"`);
+      ctx.body = JSON.stringify({
+        title: serviceName,
+        type: 'Feature Service',
+        url: currentUrl,
+      });
+      return;
+    }
+
     if (ctx.request.accepts('text/html') && format !== 'json' && format !== 'pjson') {
       // query the koop-postgres-provider for the FeatureServer JSON
       const serverJsonUrl = new URL(koopPath, baseUrl);
