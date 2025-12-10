@@ -1,3 +1,61 @@
+diff --git a/node_modules/koop-provider-pg/src/db/index.js b/node_modules/koop-provider-pg/src/db/index.js
+index d583ebb..07af364 100644
+--- a/node_modules/koop-provider-pg/src/db/index.js
++++ b/node_modules/koop-provider-pg/src/db/index.js
+@@ -1,18 +1,8 @@
+ const promise = require('bluebird')
+-const config = require('config')
+ 
+ const pgPromise = require('pg-promise')
+ const { Data } = require('./repo')
+ 
+-// Database connection details;
+-const cn = {
+-  host: process.env.PG_HOST || config.db.host,
+-  port: process.env.PG_PORT || config.db.port,
+-  database: process.env.PG_DATABASE || config.db.database,
+-  user: process.env.PG_USER || config.db.user,
+-  password: process.env.PG_PASSWORD || config.db.password
+-}
+-
+ const initOptions = {
+   promiseLib: promise,
+ 
+@@ -23,7 +13,31 @@ const initOptions = {
+ 
+ // Initializing the library:
+ const pgp = pgPromise(initOptions)
+-// Creating the database instance:
+-const db = pgp(cn)
+ 
+-module.exports = { db, pgp }
++/**
++ * @typedef {Object} ConnnectionDetails
++ * @property {string} host
++ * @property {number} port
++ * @property {string} database
++ * @property {string} user
++ * @property {string} password
++ */
++
++/**
++ * Creates a database instance.
++ */
++class Database {
++  /**
++   * @param {ConnnectionDetails} connectionDetails 
++   */
++  constructor(connectionDetails = cn) {
++    this.db = pgp(connectionDetails)
++    this.pgp = pgp
++  }
++
++  get data() {
++    return this.db.data
++  }
++}
++
++module.exports = { Database, pgp }
 diff --git a/node_modules/koop-provider-pg/src/db/repo/data.js b/node_modules/koop-provider-pg/src/db/repo/data.js
 index cde8a8e..7d9ef33 100644
 --- a/node_modules/koop-provider-pg/src/db/repo/data.js
@@ -14,24 +72,54 @@ index cde8a8e..7d9ef33 100644
        const result = await this.db.oneOrNone(sql.getGeometryColumnName, {
          schema: schema,
 diff --git a/node_modules/koop-provider-pg/src/model/index.js b/node_modules/koop-provider-pg/src/model/index.js
-index 7379799..bc8178a 100644
+index 7379799..b637f7f 100644
 --- a/node_modules/koop-provider-pg/src/model/index.js
 +++ b/node_modules/koop-provider-pg/src/model/index.js
-@@ -1,5 +1,6 @@
+@@ -1,16 +1,28 @@
  const _ = require('lodash')
- const { db } = require('../db')
+-const { db } = require('../db')
++const { Database } = require('../db')
 +const config = require('config')
  
  class Model {
-   constructor() { }
-@@ -9,8 +10,8 @@ class Model {
+-  constructor() { }
++  constructor(koop, options = {}) {
++    this.koop = koop
++    this.options = options
++    this.db = new Database({
++      host: options.host || process.env.PG_HOST || config.db.host,
++      port: options.port || process.env.PG_PORT || config.db.port,
++      database: options.database || process.env.PG_DATABASE || config.db.database,
++      user: options.user || process.env.PG_USER || config.db.user,
++      password: options.password || process.env.PG_PASSWORD || config.db.password
++    })
++  }
+ 
+   async getData(req, callback) {
++    const db = this.db;
+     try {
        const splitPath = req.params.id.split('.');
        const schema = splitPath[0];
        const table = splitPath[1];
 -      const id = process.env.PG_OBJECTID || 'gid';
 -      const pgLimit = process.env.PG_LIMIT || 10000000;
-+      const id = process.env.PG_OBJECTID || config.db.objectIdField || 'gid';
-+      const pgLimit = process.env.PG_LIMIT || config.db.pgLimit || 10000000;
++      const id = this.options.objectIdField || config.db.objectIdField || process.env.PG_OBJECTID || 'gid';
++      const pgLimit =  this.options.pgLimit || config.db.pgLimit || process.env.PG_LIMIT ||10000000;
  
        if (!table)
          throw new Error('The "id" parameter must be in the form of "schema.table"');
+@@ -51,12 +63,12 @@ class Model {
+         });
+       }
+ 
+-      geojson.description = 'PG Koop Feature Service';
++      // geojson.description = 'PG Koop Feature Service';
+       if (!geojson.metadata) {
+         geojson.metadata = {
+           title: schema,
+           name: schema + '.' + table,
+-          description: 'This feature layer generated with Koop PostGIS Provider (koop-provider-pg), for more information visit https://github.com/doneill/koop-provider-pg',
++          // description: 'This feature layer generated with Koop PostGIS Provider (koop-provider-pg), for more information visit https://github.com/doneill/koop-provider-pg',
+           idField: id,
+           geometryType: _.get(geojson, 'features[0].geometry.type'),
+         };

@@ -1,13 +1,4 @@
 {
-  "db": {
-    "host": "localhost",
-    "port": 5432,
-    "database": "kart",
-    "user": "campusmap",
-    "password": "password",
-    "objectIdField": "fid",
-    "pgLimit": 10000000
-  },
   "campusmap": {
     "waysLayers": [
       "data.trails_provisional",

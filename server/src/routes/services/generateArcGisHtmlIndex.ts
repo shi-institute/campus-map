@@ -1,6 +1,7 @@
 import { DOMParser } from '@xmldom/xmldom';
 import path from 'path';
 import { constants } from '../../utils/constants.js';
+import { unwrapServiceName } from '../../utils/index.js';
 import { arcGisCss } from '../../utils/jsonToArcGisHtml.js';
 
 interface IndexInput {
@@ -165,11 +166,7 @@ export function generateArcGisHtmlIndex(input: IndexInput, route: RouteInput): s
         encodeURI(path.join(route.currentPathname, `${service.name}/${service.type}`))
       );
 
-      let serviceName = service.name;
-      if (serviceName.startsWith('data."') && serviceName.endsWith('"')) {
-        // unwrap quoted service name
-        serviceName = serviceName.slice(6, -1);
-      }
+      const serviceName = unwrapServiceName(service.name);
       link.appendChild(document.createTextNode(`${serviceName} (${service.type})`));
 
       li.appendChild(link);

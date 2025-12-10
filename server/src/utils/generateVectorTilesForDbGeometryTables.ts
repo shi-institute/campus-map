@@ -37,13 +37,18 @@ export async function generateVectorTilesForDbGeometryTables(
     await generateRoutingTables(constants.databaseGeometryExportFolder, routingOptions);
   }
 
+  const routingTables = [
+    { name: routingOptions?.edgesTableName || 'edges', schema: 'public', folder: 'routing' },
+    { name: routingOptions?.verticesTableName || 'vertices', schema: 'public', folder: 'routing' },
+  ];
+
   // generate stubs for each layer in the repository
   // so we can indicate the presence of a feature service
   // for each layer
-  for await (const table of tables) {
+  for await (const table of [...tables, ...routingTables]) {
     const serviceDir = path.join(
       constants.fileBasedServicesDataFolder,
-      table.schema,
+      'folder' in table ? table.folder : 'data',
       `${table.schema}."${table.name}"`
     );
     await rm(serviceDir, { recursive: true, force: true });

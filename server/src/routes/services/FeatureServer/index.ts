@@ -1,14 +1,30 @@
 import Router from '@koa/router';
-import express from 'express';
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { Socket } from 'node:net';
-import { Readable, Writable } from 'node:stream';
+import { Readable } from 'node:stream';
 import { koop } from '../../../index.js';
-import { constants, constructArcGisWebMap, jsonToArcGisHtml } from '../../../utils/index.js';
+import {
+  constants,
+  constructArcGisWebMap,
+  jsonToArcGisHtml,
+  unwrapServiceName,
+} from '../../../utils/index.js';
 
 export default (router: Router, serviceFolder: string, serviceRootPathname: string) => {
-  const serviceSubpath = serviceFolder.replace(constants.fileBasedServicesDataFolder + 'data/', '');
-  const koopPath = `/${constants.koopProviderId}/rest/services/${serviceSubpath}/FeatureServer`;
+  const servicePath = serviceFolder.replace(constants.fileBasedServicesDataFolder, '');
+
+  const isKartSource = servicePath.startsWith('data/');
+  const isRoutingSource = servicePath.startsWith('routing/');
+  if (!isKartSource && !isRoutingSource) {
+    throw new Error(`Service folder ${serviceFolder} is not a valid Kart or routing source.`);
+  }
+
+  const serviceSubpath = serviceFolder.replace(
+    constants.fileBasedServicesDataFolder + (isKartSource ? 'data/' : 'routing/'),
+    ''
+  );
+  const koopPath = `/${
+    isKartSource ? constants.koopKartProviderId : constants.koopRoutingProviderId
+  }/rest/services/${serviceSubpath}/FeatureServer`;
 
   // serve FeatureServer from koop
   router.get('/', async (ctx) => {
@@ -18,11 +34,7 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
     const currentUrl = baseUrl + ctx.request.path;
     const format = ctx.request.query.f;
 
-    let serviceName = serviceSubpath;
-    if (serviceName.startsWith('data."') && serviceName.endsWith('"')) {
-      // unwrap quoted service name
-      serviceName = serviceName.slice(6, -1);
-    }
+    const serviceName = unwrapServiceName(serviceSubpath);
 
     if (format === 'jsapi') {
       ctx.type = 'text/html';
@@ -35,8 +47,6 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
       const serverJsonUrl = new URL(koopPath, baseUrl);
       serverJsonUrl.searchParams.set('f', 'json');
       const serverJson = await getJson(koop.server, serverJsonUrl);
-
-      console.log(serviceSubpath, currentUrl);
 
       ctx.type = 'text/html';
       ctx.body = jsonToArcGisHtml(
@@ -59,7 +69,16 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
     if (ctx.path.startsWith('/rest/services/data/')) {
       // rewrite to remove 'data' from the path, since koop-postgres-provider
       // serves data at /f3692c88-163b-41a8-8341-c64c16a1e8a9/rest/services/:provider/:id/FeatureServer
-      ctx.path = ctx.path.replace('/rest/services/data/', `/${constants.koopProviderId}/rest/services/`);
+      ctx.path = ctx.path.replace('/rest/services/data/', `/${constants.koopKartProviderId}/rest/services/`);
+    }
+
+    if (ctx.path.startsWith('/rest/services/routing/')) {
+      // rewrite to remove 'routing' from the path, since koop-postgres-provider
+      // serves data at /120eb65f-9e43-4623-9e72-259916d5b736/rest/services/:provider/:id/FeatureServer
+      ctx.path = ctx.path.replace(
+        '/rest/services/routing/',
+        `/${constants.koopRoutingProviderId}/rest/services/`
+      );
     }
 
     ctx.respond = false; // let Express handle the raw response

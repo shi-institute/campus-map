@@ -96,7 +96,7 @@ async function solveRoute(
         SELECT *
         FROM pgr_dijkstra(
           'SELECT 
-             edge_id AS id, 
+             id AS id, 
              start_vertex AS source, 
              end_vertex AS target, 
              cost__distance AS cost, 
@@ -109,13 +109,13 @@ async function solveRoute(
       )
     SELECT
       route.seq AS step,
-      edges.edge_id AS edge_id,
+      edges.id AS edge_id,
       route.node AS edge_end_vertex_id,
       route.cost AS edge_cost,
       ${format === 'table' ? 'edges.geom' : 'ST_AsGeoJSON(edges.geom)::jsonb'} AS geometry
     FROM route
     JOIN edges
-      ON edges.edge_id = route.edge
+      ON edges.id = route.edge
     WHERE route.edge <> -1
     ORDER BY route.seq;
   `;

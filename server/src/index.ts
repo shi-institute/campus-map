@@ -24,8 +24,24 @@ koop.register(OutputGeoservices, {
   },
 });
 koop.register(koopPostgresProvider, {
-  name: constants.koopProviderId,
-  foo: 'bar',
+  name: constants.koopKartProviderId,
+  host: constants.database.host,
+  port: constants.database.port,
+  database: constants.database.geodatabase,
+  user: constants.database.username,
+  password: constants.database.password,
+  objectIdField: 'fid',
+  pgLimit: 1000000,
+});
+koop.register(koopPostgresProvider, {
+  name: constants.koopRoutingProviderId,
+  host: constants.database.host,
+  port: constants.database.port,
+  database: constants.database.routingdatabase,
+  user: constants.database.username,
+  password: constants.database.password,
+  objectIdField: 'id',
+  pgLimit: 1000000,
 });
 
 // load environment variables from .env file
@@ -130,7 +146,7 @@ app.use(servicesRouter.routes());
 
 router.get('/rest/info', (ctx) => {
   // rewrite to match koop-postgres-provider's provider name
-  ctx.path = `/${constants.koopProviderId}/rest/info`;
+  ctx.path = `/${constants.koopKartProviderId}/rest/info`;
   ctx.respond = false; // let Express handle the raw response
   koop.server.handle(ctx.req as IncomingMessage, ctx.res as ServerResponse);
 });

@@ -13,7 +13,8 @@ const database = {
   geoschema: 'data',
   routingdatabase: 'routing',
 };
-const koopProviderId = 'f3692c88-163b-41a8-8341-c64c16a1e8a9';
+const koopKartProviderId = 'f3692c88-163b-41a8-8341-c64c16a1e8a9';
+const koopRoutingProviderId = '120eb65f-9e43-4623-9e72-259916d5b736';
 
 export const constants = {
   fileBasedServicesDataFolder,
@@ -21,5 +22,6 @@ export const constants = {
   servicesDirectoryTitle,
   campusMapVectorTilesOutputFolder,
   database,
-  koopProviderId,
+  koopKartProviderId,
+  koopRoutingProviderId,
 };

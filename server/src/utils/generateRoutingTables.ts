@@ -34,6 +34,7 @@ export async function generateRoutingTables(inputFolder: string, options: Routin
   // and add a sequential way_id column (ROW_NUMBER() OVER () AS way_id)
   await exec(
     `ogr2ogr -f Flatgeobuf "${mergedWaysFgbPath}" "${waysFgbFiles[0]}" \
+    -t_srs EPSG:4326 \
     -sql  "SELECT *, ROW_NUMBER() OVER () AS way_id FROM '${await getFirstLayerName(waysFgbFiles[0]!)}'" \
     -dialect SQLite \
     -nln ways`,
@@ -63,6 +64,7 @@ export async function generateRoutingTables(inputFolder: string, options: Routin
     // step 2: append rows
     await exec(
       `ogr2ogr -f FlatGeobuf -update -append "${mergedWaysFgbPath}" "${waysFgbFile}" \
+    -t_srs EPSG:4326 \
     -sql "SELECT *, ROW_NUMBER() OVER () + ${edgeIdOffset} AS way_id FROM '${layerName}'" \
     -dialect SQLite \
     -nln ways`,
@@ -111,19 +113,23 @@ export async function generateRoutingTables(inputFolder: string, options: Routin
 
   // append additional instructions related to creating the routing topology
   dumpFileContent += `
-  -- replace fid with edge_id and make edge_id the primary key
+  -- replace fid (the primary key) with edge_id and drop the old edge_id column
   UPDATE edges SET fid = edge_id;
   ALTER TABLE edges DROP COLUMN edge_id;
-  ALTER TABLE edges RENAME COLUMN fid TO edge_id;
+  ALTER TABLE edges RENAME COLUMN fid TO id; -- rename fid to id
 
-  -- make edge_id use BIGINT type
+  -- make id use BIGINT type
   ALTER TABLE edges
-  ALTER COLUMN edge_id TYPE BIGINT;
+  ALTER COLUMN id TYPE BIGINT;
 
   -- create the vertices table
   CREATE TABLE vertices AS
   SELECT *
-  FROM pgr_extractVertices('SELECT edge_id AS id, geom FROM edges');
+  FROM pgr_extractVertices('SELECT id AS id, geom FROM edges');
+
+  -- make the vertices table use BIGINT type for id
+  ALTER TABLE vertices
+  ALTER COLUMN id TYPE BIGINT;
 
   -- set the SRID on the vertices table to match the edges table
   DO $$

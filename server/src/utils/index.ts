@@ -14,3 +14,4 @@ export { kartDatabasePool } from './kartDatabasePool.js';
 export { listDbGeometryTables } from './listDbGeometryTables.js';
 export { routingDatabasePool } from './routingDatabasePool.js';
 export { uncapitalize } from './uncapitalize.js';
+export { unwrapServiceName } from './unwrapServiceName.js';

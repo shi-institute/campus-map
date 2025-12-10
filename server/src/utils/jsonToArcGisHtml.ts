@@ -1,6 +1,6 @@
 import { DOMParser } from '@xmldom/xmldom';
 import { knownServiceTypes } from '../routes/services/discoverServices.js';
-import { constants } from './index.js';
+import { constants, unwrapServiceName } from './index.js';
 
 interface DataInput {
   data: Record<string, unknown>;
@@ -15,10 +15,7 @@ interface RouteInput {
 export function extractServiceNameFromUrl(url: URL): string {
   const pathParts = url.pathname.split('/');
   let serviceName = decodeURIComponent(pathParts[pathParts.length - 2] || '');
-  if (serviceName.startsWith('data."') && serviceName.endsWith('"')) {
-    // unwrap quoted service name
-    serviceName = serviceName.slice(6, -1);
-  }
+  serviceName = unwrapServiceName(serviceName);
   return serviceName;
 }
 
