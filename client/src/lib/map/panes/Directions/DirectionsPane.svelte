@@ -41,7 +41,7 @@
     /**
      * Fires when a new directions URL is ready.
      */
-    onNewUrl?: (url: SvelteURL) => void;
+    onNewUrl?: (url: SvelteURL, shouldReplace?: boolean) => Promise<boolean | void>;
     /**
      * Fires when the pane is closed from within the pane.
      */
@@ -87,7 +87,7 @@
         ],
         method: 'walking',
       });
-      onNewUrl(directionsUrl);
+      onNewUrl(directionsUrl, true);
     }
   }
 

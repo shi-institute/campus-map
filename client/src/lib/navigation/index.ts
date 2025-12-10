@@ -8,4 +8,5 @@ export const routeInterpreter = { interpretAppRoute };
 
 export type { FoundDirectionsRoute } from './directions';
 export type { InterpretedRoute } from './interpretAppRoute';
+export type { FoundPlaceRoute } from './place';
 export * from './router.js';

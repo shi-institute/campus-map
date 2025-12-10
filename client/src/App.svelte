@@ -1,22 +1,21 @@
 <script lang="ts">
   import { LeftPane } from '$lib/components';
   import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
-  import { goBack, goto, historyStack, route, routeBuilder, url } from '$lib/navigation';
+  import { goBack, goto, route } from '$lib/navigation';
   import {
     copyToClipboard,
+    getLabelFromProperties,
     implementPitchAndRollOnMiddleClickAndDrag,
     implementZoomOnRightClickAndDrag,
     queryFeatureServices,
     useAsync,
-    with_previous,
   } from '$lib/utils';
   import { centroid as computeCentroid } from '@turf/centroid';
-  import { GeoJSONFeature, type MapMouseEvent } from 'maplibre-gl';
+  import { type MapMouseEvent } from 'maplibre-gl';
   import { onMount, untrack } from 'svelte';
   import {
     CustomControl,
     MapLibre,
-    Marker,
     NavigationControl,
     RasterDEMTileSource,
     RasterLayer,
@@ -65,13 +64,7 @@
         const centroid = computeCentroid(feature);
 
         // compute a label for the feature
-        const label = (
-          feature.properties?.Name ||
-          feature.properties?.label ||
-          feature.properties?.LABEL ||
-          feature.properties?.name ||
-          'Unnamed Feature'
-        ).toString();
+        const [label] = getLabelFromProperties(feature.properties, 'Unnamed feature');
 
         const pathname = `/place/${feature.properties.__layerId}/${feature.id}/@${centroid.geometry.coordinates[1]},${centroid.geometry.coordinates[0]}/`;
 
@@ -141,54 +134,7 @@
   // get the place from the URL
   const place = $derived($route.type === 'place' ? $route.data : null);
 
-  // const place = $derived.by(
-  //   with_previous(
-  //     (previous) => {
-  //       // match /place/:layerId/:featureId/@:lat,:lon/
-  //       const parts = $url.pathname.split('/');
-  //       if (parts.length < 5 || parts[1] !== 'place' || !parts[4].startsWith('@')) {
-  //         return null;
-  //       }
-
-  //       // get the layer id
-  //       const layerId = decodeURIComponent(parts[2]);
-  //       if (!layerId) {
-  //         return null;
-  //       }
-
-  //       // get the feature id
-  //       const featureIdPart = decodeURIComponent(parts[3]);
-  //       if (!featureIdPart) {
-  //         return null;
-  //       }
-  //       const featureId = isNaN(Number(featureIdPart)) ? featureIdPart : Number(featureIdPart);
-
-  //       // get the centroid
-  //       const coordsPart = parts[4].substring(1); // remove '@'
-  //       const coords = coordsPart.split(',').map((part) => parseFloat(part.trim()));
-  //       if (coords.length !== 2 || coords.some(isNaN)) {
-  //         return null;
-  //       }
-  //       const centroidLatLong = [coords[1], coords[0]] as [number, number];
-
-  //       // only return a new data obhect if it has changed
-  //       const isCentroidChanged =
-  //         !previous ||
-  //         previous.centroid[0] !== centroidLatLong[0] ||
-  //         previous.centroid[1] !== centroidLatLong[1];
-  //       const isDifferentThanPreviousValue =
-  //         isCentroidChanged || previous.layerId !== layerId || previous.featureId !== featureId;
-  //       if (!isDifferentThanPreviousValue) {
-  //         return previous;
-  //       }
-
-  //       return { centroid: centroidLatLong, layerId, featureId };
-  //     },
-  //     undefined as undefined | { centroid: [number, number]; layerId: string; featureId: number | string }
-  //   )
-  // );
-
-  // center on the place centroid when it changes
+  // when the place changes, center the map on the place centroid
   $effect(() => {
     if (place?.centroid) {
       untrack(() => {
@@ -196,71 +142,6 @@
       });
     }
   });
-
-  let mapStyleReady = $state(false);
-
-  function findFeatureOnMap(layerId: string, featureId: number | string) {
-    if (!map) {
-      return;
-    }
-
-    const style = map.getStyle();
-    if (!style) {
-      throw new Error('Map style is not loaded yet.');
-    }
-
-    const layers = style.layers.filter((layerSpec) => 'source' in layerSpec && layerSpec.source === 'esri');
-    for (const layer of layers) {
-      if (layer.id.toLowerCase() !== layerId.toLowerCase()) {
-        continue;
-      }
-
-      const features = map.querySourceFeatures('esri', { sourceLayer: layer.id });
-      for (const feature of features) {
-        if (feature.id === featureId) {
-          return feature;
-        }
-      }
-    }
-
-    console.warn(`Feature not found on map: layerId=${layerId}, featureId=${featureId}`);
-    return null;
-  }
-
-  // get the feature based on the selected place
-  const placeFeature = $derived.by(
-    with_previous(
-      (previous) => {
-        const currentPlaceMatchesPreviousPlace =
-          previous && place && previous.layerId === place.layerId && previous.id === place.featureId;
-
-        if (!place || !mapStyleReady || mapDataLoading) {
-          // fall back to previous value if the place is the same
-          if (currentPlaceMatchesPreviousPlace) return previous;
-          return null;
-
-          return previous;
-        }
-
-        const found: (GeoJSONFeature & { layerId?: string }) | null | undefined = findFeatureOnMap(
-          place.layerId,
-          place.featureId
-        );
-        if (!found) {
-          if (currentPlaceMatchesPreviousPlace) return previous;
-          return null;
-        }
-
-        // attach layerId for later reference
-        found.layerId = place.layerId;
-
-        return found;
-      },
-      null as null | (GeoJSONFeature & { layerId?: string })
-    )
-  );
-
-  let mapDataLoading = $state(false);
 </script>
 
 <div
@@ -284,15 +165,6 @@
     hash={true}
     maxPitch={85}
     autoloadGlobalCss={false}
-    onstyledata={() => {
-      mapStyleReady = true;
-    }}
-    ondataloading={() => {
-      mapDataLoading = true;
-    }}
-    onidle={() => {
-      mapDataLoading = false;
-    }}
     onload={(event) => {
       const map = event.target;
 
@@ -333,62 +205,24 @@
         visible={visiblePane === 'navigation'}
         bind:startLngLat={directionsStartLngLat}
         bind:endLngLat={directionsEndLngLat}
-        onNewUrl={(url) => {
-          goto(url, true);
+        onNewUrl={async (url, shouldReplace) => {
+          goto(url, shouldReplace);
         }}
         onClose={() => goBack()}
       />
 
-      <LeftPane
-        title="Place Information"
+      <Panes.Place
         {mapFrameHeight}
         {mapFrameWidth}
         bind:minimized={panesAreMinimized}
         bind:open={placePaneIsOpen}
         visible={visiblePane === 'place'}
+        {place}
+        onNewUrl={async (url, shouldReplace) => {
+          goto(url, shouldReplace);
+        }}
         onClose={() => goBack()}
-      >
-        <h2>Directions</h2>
-        <button
-          onclick={() => {
-            visiblePane = 'navigation';
-            directionsPaneIsOpen = true;
-
-            // center the map on the place centroid
-            if (place?.centroid) {
-              map?.setCenter(place.centroid, { animate: true });
-            }
-
-            // open the directions pane
-            const directionsUrl = routeBuilder.buildDirectionsRoute({
-              // pre-fill the end location with the selected place centroid
-              orderedStops: place?.centroid
-                ? [
-                    null, // leave start location empty
-                    { label: 'End', lngLat: place.centroid },
-                  ]
-                : [],
-              method: 'walking',
-            });
-            goto(directionsUrl);
-          }}
-        >
-          Get directions
-        </button>
-
-        <h2>Type</h2>
-        <p>{placeFeature?.geometry.type ?? 'N/A'}</p>
-
-        <h2>id</h2>
-        <p>{placeFeature?.id ?? 'N/A'}</p>
-
-        <h2>properties</h2>
-        <pre>{JSON.stringify(placeFeature?.properties ?? {}, null, 2)}</pre>
-
-        {#if place?.centroid}
-          <Marker lnglat={place.centroid} color="orange" />
-        {/if}
-      </LeftPane>
+      />
 
       <LeftPane
         title="Search"

@@ -1,5 +1,4 @@
 import { base64UrlEncode, stringToLngLat } from '$lib/utils';
-import { LngLat } from 'maplibre-gl';
 import { SvelteURL } from 'svelte/reactivity';
 import { z } from 'zod';
 
