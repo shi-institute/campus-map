@@ -20,6 +20,12 @@
     "checkJs": true,
     "moduleDetection": "force",
     "paths": {
+      "$lib/navigation": [
+        "./src/lib/navigation/index.ts"
+      ],
+      "$lib/navigation/*": [
+        "./src/lib/navigation/*"
+      ],
       "$lib/utils": [
         "./src/lib/utils/index.ts"
       ],

@@ -19,7 +19,8 @@
     /** Hides the close button from the pane titlebar. */
     hideCloseButton?: boolean;
     style?: string;
-    onclose?: () => void;
+    onClose?: () => void;
+    mapOffsetX?: number;
   }
 
   let {
@@ -32,13 +33,28 @@
     visible = $bindable(true),
     hideCloseButton = false,
     style,
-    onclose,
+    onClose,
+    mapOffsetX = $bindable(0),
   }: LeftPaneProps = $props();
+
+  let windowWidth = $state<number>(window.innerWidth);
+  $effect(() => {
+    if (windowWidth <= 540) {
+      mapOffsetX = 0;
+    } else if (windowWidth <= 940) {
+      mapOffsetX = 120 + convertRemToPixels(0.5);
+    } else {
+      mapOffsetX = 150 + convertRemToPixels(0.5);
+    }
+  });
 </script>
+
+<svelte:window bind:innerWidth={windowWidth} />
 
 <aside
   style:--map-frame-height={mapFrameHeight + 'px'}
   style:--map-frame-width={mapFrameWidth + 'px'}
+  style:--map-offset-x={mapOffsetX + 'px'}
   {style}
   class:minimized
   class:invisible={!visible}
@@ -82,7 +98,7 @@
         size="14px"
         onclick={() => {
           open = false;
-          onclose?.();
+          onClose?.();
         }}
       >
         <svg viewBox="0 0 24 24">

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { LeftPane } from '$lib/components';
   import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
+  import { goBack, goto, historyStack, route, routeBuilder, url } from '$lib/navigation';
   import {
     copyToClipboard,
     implementPitchAndRollOnMiddleClickAndDrag,
@@ -21,34 +22,6 @@
     RasterLayer,
     RasterTileSource,
   } from 'svelte-maplibre-gl';
-  import { SvelteURL } from 'svelte/reactivity';
-
-  // URL that we can manipulate that will update the browser URL on change
-  let url = $state(new SvelteURL(window.location.href));
-  function goto(newUrl: string | URL, replace = false) {
-    if (typeof newUrl === 'string') {
-      newUrl = new URL(newUrl, window.location.href);
-    }
-    if (replace) {
-      window.history.replaceState({}, '', newUrl.href);
-      return;
-    }
-    window.history.pushState({}, '', newUrl.href);
-  }
-  $effect(() => {
-    function handleHistoryChange() {
-      url = new SvelteURL(window.location.href);
-    }
-
-    window.addEventListener('pushstate', handleHistoryChange);
-    window.addEventListener('replacestate', handleHistoryChange);
-    window.addEventListener('popstate', handleHistoryChange);
-    return () => {
-      window.removeEventListener('pushstate', handleHistoryChange);
-      window.removeEventListener('replacestate', handleHistoryChange);
-      window.removeEventListener('popstate', handleHistoryChange);
-    };
-  });
 
   let center = $state([-82.43915171317023, 34.92549441017741] as [number, number]); // New York City
   let zoom = $state(16);
@@ -118,36 +91,39 @@
   });
 
   let panesAreMinimized = $state(true);
-  let searchPaneIsOpen = $state(true);
-  let navigationPaneIsOpen = $state(false);
+  let directionsPaneIsOpen = $derived(false);
   let placePaneIsOpen = $state(false);
 
   let visiblePane = $derived.by(() => {
     // if the navigation pane is open, show it
-    if (navigationPaneIsOpen) {
+    if ($route.type === 'directions') {
       return 'navigation';
     }
 
     // if there is a selected place, show the place pane
-    if (placePaneIsOpen) {
+    if ($route.type === 'place') {
       return 'place';
     }
 
-    // if the search pane is open, show it
-    if (searchPaneIsOpen) {
-      return 'search';
-    }
+    // otherwise, show the search pane
+    return 'search';
+  });
 
-    // otherwise, show nothing
-    return null;
+  // if there is a place selected, ensure the place pane is open
+  $effect(() => {
+    if ($route.type === 'place') {
+      placePaneIsOpen = true;
+    }
+  });
+
+  // if the directions URL is active, ensure the directions pane is open
+  $effect(() => {
+    if ($route.type === 'directions') {
+      directionsPaneIsOpen = true;
+    }
   });
 
   onMount(() => {
-    if (!visiblePane) {
-      visiblePane = 'navigation';
-      navigationPaneIsOpen = true;
-    }
-
     if (visiblePane !== 'search') {
       panesAreMinimized = false;
     } else {
@@ -155,59 +131,68 @@
     }
   });
 
-  // get the place from the URL
-  const place = $derived.by(
-    with_previous(
-      (previous) => {
-        // match /place/:layerId/:featureId/@:lat,:lon/
-        const parts = url.pathname.split('/');
-        if (parts.length < 5 || parts[1] !== 'place' || !parts[4].startsWith('@')) {
-          return null;
-        }
-
-        // get the layer id
-        const layerId = decodeURIComponent(parts[2]);
-        if (!layerId) {
-          return null;
-        }
-
-        // get the feature id
-        const featureIdPart = decodeURIComponent(parts[3]);
-        if (!featureIdPart) {
-          return null;
-        }
-        const featureId = isNaN(Number(featureIdPart)) ? featureIdPart : Number(featureIdPart);
-
-        // get the centroid
-        const coordsPart = parts[4].substring(1); // remove '@'
-        const coords = coordsPart.split(',').map((part) => parseFloat(part.trim()));
-        if (coords.length !== 2 || coords.some(isNaN)) {
-          return null;
-        }
-        const centroidLatLong = [coords[1], coords[0]] as [number, number];
-
-        // only return a new data obhect if it has changed
-        const isCentroidChanged =
-          !previous ||
-          previous.centroid[0] !== centroidLatLong[0] ||
-          previous.centroid[1] !== centroidLatLong[1];
-        const isDifferentThanPreviousValue =
-          isCentroidChanged || previous.layerId !== layerId || previous.featureId !== featureId;
-        if (!isDifferentThanPreviousValue) {
-          return previous;
-        }
-
-        return { centroid: centroidLatLong, layerId, featureId };
-      },
-      undefined as undefined | { centroid: [number, number]; layerId: string; featureId: number | string }
-    )
+  let directionsStartLngLat = $derived(
+    $route.type === 'directions' ? $route.data.orderedStops[0]?.lngLat : undefined
   );
+  let directionsEndLngLat = $derived(
+    $route.type === 'directions' ? $route.data.orderedStops[1]?.lngLat : undefined
+  );
+
+  // get the place from the URL
+  const place = $derived($route.type === 'place' ? $route.data : null);
+
+  // const place = $derived.by(
+  //   with_previous(
+  //     (previous) => {
+  //       // match /place/:layerId/:featureId/@:lat,:lon/
+  //       const parts = $url.pathname.split('/');
+  //       if (parts.length < 5 || parts[1] !== 'place' || !parts[4].startsWith('@')) {
+  //         return null;
+  //       }
+
+  //       // get the layer id
+  //       const layerId = decodeURIComponent(parts[2]);
+  //       if (!layerId) {
+  //         return null;
+  //       }
+
+  //       // get the feature id
+  //       const featureIdPart = decodeURIComponent(parts[3]);
+  //       if (!featureIdPart) {
+  //         return null;
+  //       }
+  //       const featureId = isNaN(Number(featureIdPart)) ? featureIdPart : Number(featureIdPart);
+
+  //       // get the centroid
+  //       const coordsPart = parts[4].substring(1); // remove '@'
+  //       const coords = coordsPart.split(',').map((part) => parseFloat(part.trim()));
+  //       if (coords.length !== 2 || coords.some(isNaN)) {
+  //         return null;
+  //       }
+  //       const centroidLatLong = [coords[1], coords[0]] as [number, number];
+
+  //       // only return a new data obhect if it has changed
+  //       const isCentroidChanged =
+  //         !previous ||
+  //         previous.centroid[0] !== centroidLatLong[0] ||
+  //         previous.centroid[1] !== centroidLatLong[1];
+  //       const isDifferentThanPreviousValue =
+  //         isCentroidChanged || previous.layerId !== layerId || previous.featureId !== featureId;
+  //       if (!isDifferentThanPreviousValue) {
+  //         return previous;
+  //       }
+
+  //       return { centroid: centroidLatLong, layerId, featureId };
+  //     },
+  //     undefined as undefined | { centroid: [number, number]; layerId: string; featureId: number | string }
+  //   )
+  // );
 
   // center on the place centroid when it changes
   $effect(() => {
     if (place?.centroid) {
       untrack(() => {
-        center = [place.centroid[0], place.centroid[1]]; // lat, lon
+        center = [place.centroid.lng, place.centroid.lat];
       });
     }
   });
@@ -224,7 +209,7 @@
       throw new Error('Map style is not loaded yet.');
     }
 
-    const layers = style.layers.filter((layerSpec) => layerSpec.source === 'esri');
+    const layers = style.layers.filter((layerSpec) => 'source' in layerSpec && layerSpec.source === 'esri');
     for (const layer of layers) {
       if (layer.id.toLowerCase() !== layerId.toLowerCase()) {
         continue;
@@ -274,11 +259,6 @@
       null as null | (GeoJSONFeature & { layerId?: string })
     )
   );
-
-  // if there is a place selected, ensure the place pane is open
-  $effect(() => {
-    placePaneIsOpen = !!place;
-  });
 
   let mapDataLoading = $state(false);
 </script>
@@ -349,8 +329,14 @@
         {mapFrameHeight}
         {mapFrameWidth}
         bind:minimized={panesAreMinimized}
-        bind:open={navigationPaneIsOpen}
+        bind:open={directionsPaneIsOpen}
         visible={visiblePane === 'navigation'}
+        bind:startLngLat={directionsStartLngLat}
+        bind:endLngLat={directionsEndLngLat}
+        onNewUrl={(url) => {
+          goto(url, true);
+        }}
+        onClose={() => goBack()}
       />
 
       <LeftPane
@@ -360,22 +346,31 @@
         bind:minimized={panesAreMinimized}
         bind:open={placePaneIsOpen}
         visible={visiblePane === 'place'}
-        onclose={() => {
-          // navigate back to the main map view (remove place from URL)
-          goto('/', true);
-        }}
+        onClose={() => goBack()}
       >
         <h2>Directions</h2>
         <button
           onclick={() => {
             visiblePane = 'navigation';
-            navigationPaneIsOpen = true;
+            directionsPaneIsOpen = true;
 
+            // center the map on the place centroid
             if (place?.centroid) {
-              startLocation = `${place.centroid[1]}, ${place.centroid[0]}`;
               map?.setCenter(place.centroid, { animate: true });
             }
-            goto('/dir');
+
+            // open the directions pane
+            const directionsUrl = routeBuilder.buildDirectionsRoute({
+              // pre-fill the end location with the selected place centroid
+              orderedStops: place?.centroid
+                ? [
+                    null, // leave start location empty
+                    { label: 'End', lngLat: place.centroid },
+                  ]
+                : [],
+              method: 'walking',
+            });
+            goto(directionsUrl);
           }}
         >
           Get directions
@@ -400,7 +395,7 @@
         {mapFrameHeight}
         {mapFrameWidth}
         bind:minimized={panesAreMinimized}
-        bind:open={searchPaneIsOpen}
+        open
         visible={visiblePane === 'search'}
         hideCloseButton
         style="user-select: none;"
@@ -413,7 +408,7 @@
         <button
           onclick={() => {
             visiblePane = 'navigation';
-            navigationPaneIsOpen = true;
+            directionsPaneIsOpen = true;
           }}
         >
           Get directions

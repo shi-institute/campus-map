@@ -2,7 +2,6 @@ import { isGeoJsonLineStringFeatureCollection } from '$lib/utils';
 import { LngLat } from 'maplibre-gl';
 
 interface SolveRouteParams {
-  map: maplibregl.Map;
   startLngLat: maplibregl.LngLatLike;
   endLngLat: maplibregl.LngLatLike;
   throwOnError?: boolean;
@@ -11,8 +10,8 @@ interface SolveRouteParams {
 /**
  * Solves a route between two points using the campus map routing server.
  */
-export async function solveRoute({ map, startLngLat, endLngLat, throwOnError = false }: SolveRouteParams) {
-  if (!startLngLat || !endLngLat || !map) {
+export async function solveRoute({ startLngLat, endLngLat, throwOnError = false }: SolveRouteParams) {
+  if (!startLngLat || !endLngLat) {
     return null;
   }
 

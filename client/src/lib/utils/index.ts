@@ -1,3 +1,4 @@
+export { computeGeoJsonBounds } from './computeGeoJsonBounds.js';
 export { convertRemToPixels } from './convertRemToPixesl.js';
 export { copyToClipboard } from './copyToClipboard.js';
 export { getAvailableFeatureServices } from './getAvailableFeatureServices.js';
@@ -5,5 +6,7 @@ export { implementPitchAndRollOnMiddleClickAndDrag } from './implementPitchAndRo
 export { implementZoomOnRightClickAndDrag } from './implementZoomOnRightClickAndDrag.js';
 export * from './isGeoJson.js';
 export { queryFeatureServices } from './queryFeatureServices.js';
+export { stringToLngLat } from './stringToLngLat.js';
+export { base64UrlDecode, base64UrlEncode } from './urlBase64.js';
 export { useAsync } from './useAsync.svelte.js';
 export { with_previous } from './with_previous.js';

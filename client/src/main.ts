@@ -26,14 +26,22 @@ JSON.parse = function (text, reviver, { skipBigIntRestore = false } = {}) {
 const originalPushState = history.pushState;
 history.pushState = function (...args) {
   const result = originalPushState.apply(this, args);
-  window.dispatchEvent(new Event('pushstate'));
+  window.dispatchEvent(
+    new CustomEvent('pushstate', {
+      detail: { from: new URL(window.location.href), to: args[2] ? new URL(args[2]) : null, type: 'push' },
+    })
+  );
   return result;
 };
 
 const originalReplaceState = history.replaceState;
 history.replaceState = function (...args) {
   const result = originalReplaceState.apply(this, args);
-  window.dispatchEvent(new Event('replacestate'));
+  window.dispatchEvent(
+    new CustomEvent('replacestate', {
+      detail: { from: new URL(window.location.href), to: args[2] ? new URL(args[2]) : null, type: 'replace' },
+    })
+  );
   return result;
 };
 
