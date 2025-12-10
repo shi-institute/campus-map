@@ -1,35 +1,37 @@
-import { exec as execSync } from 'node:child_process';
+import { exec as execSync, spawn } from 'node:child_process';
 
 export function exec(command: string, logStdout = false, logStderr = false, indent = '') {
   return new Promise<void | string>((resolve, reject) => {
-    const child = execSync(command);
+    const child = spawn(command, { shell: true });
 
     let stdOutCopy = '';
+
     if (child.stdout) {
-      child.stdout.on('data', (data: string) => {
-        stdOutCopy += data;
+      child.stdout.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdOutCopy += text;
         if (logStdout) {
           process.stdout.write(
-            indent +
-              data
-                .toString()
-                .split('\n')
-                .map((line) => (line ? indent + line : ''))
-                .join('\n')
+            text
+              .split('\n')
+              .map((line) => (line ? indent + line : ''))
+              .join('\n')
           );
         }
       });
     }
 
+    let stdErrorCopy = '';
+
     if (child.stderr && logStderr) {
-      child.stderr.on('data', (data: string) => {
+      child.stderr.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdErrorCopy += text;
         process.stderr.write(
-          indent +
-            data
-              .toString()
-              .split('\n')
-              .map((line) => (line ? indent + line : ''))
-              .join('\n')
+          text
+            .split('\n')
+            .map((line) => (line ? indent + line : ''))
+            .join('\n')
         );
       });
     }
@@ -38,7 +40,9 @@ export function exec(command: string, logStdout = false, logStderr = false, inde
 
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(`Command failed: ${command} (exit code ${code})`));
+        reject(
+          new Error(`Command failed: ${command}\n\n(exit code ${code})\n\nError output:\n${stdErrorCopy}`)
+        );
       } else if (logStdout === false) {
         resolve(stdOutCopy);
       } else {
