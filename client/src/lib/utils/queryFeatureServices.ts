@@ -1,5 +1,12 @@
+import epsg from 'epsg-index/all.json';
+import proj4 from 'proj4';
 import { getAvailableFeatureServices } from './getAvailableFeatureServices';
-import { isGeoJsonFeatureCollection } from './isGeoJson';
+import { isGeoJsonFeature, isGeoJsonFeatureCollection } from './isGeoJson';
+
+// register all EPSG codes
+for (const code in epsg) {
+  proj4.defs(`EPSG:${code}`, (epsg as any)[code].proj4);
+}
 
 interface FeatureServiceQuerySpec {
   /**
@@ -153,12 +160,60 @@ export async function queryFeatureServices(
           .filter((x) => x !== null);
 
         return { type: 'FeatureCollection', features: mergedFeatures } as GeoJSON.FeatureCollection<
-          GeoJSON.Geometry,
+          GeoJSON.Geometry & { crs?: { type?: string; properties?: { name: string } } },
           { __layerId: string; [key: string]: unknown }
         >;
       })
+      // ensure all are using WG848 coordinates (assume missing crs is WG848)
+      .then((geojson) => {
+        const features = geojson.features
+          .map((feature) => {
+            const crs = feature.geometry.crs?.properties?.name || 'EPSG:4326';
+            if (crs === 'EPSG:4326') {
+              return feature;
+            } else if (isGeoJsonFeature(feature)) {
+              return {
+                ...feature,
+                crs: { type: 'name', properties: { name: 'EPSG:4326' } },
+                geometry: {
+                  ...feature.geometry,
+                  // convert coordinates to EPSG:4326
+                  coordinates: transformCoordinates(feature.geometry.coordinates, crs, 'EPSG:4326'),
+                },
+              };
+            }
+          })
+          .filter((x) => !!x);
+
+        return { ...geojson, features: features as typeof geojson.features };
+      })
   );
   // merge all responses into a unified GeoJSON FeatureCollection
+}
+
+type Coordinates =
+  | GeoJSON.Point['coordinates']
+  | GeoJSON.MultiPoint['coordinates']
+  | GeoJSON.LineString['coordinates']
+  | GeoJSON.MultiLineString['coordinates']
+  | GeoJSON.Polygon['coordinates']
+  | GeoJSON.MultiPolygon['coordinates'];
+type NestedCoordinates =
+  | GeoJSON.MultiPoint['coordinates']
+  | GeoJSON.LineString['coordinates']
+  | GeoJSON.MultiLineString['coordinates']
+  | GeoJSON.Polygon['coordinates']
+  | GeoJSON.MultiPolygon['coordinates'];
+function transformCoordinates(coords: Coordinates, fromCrs: string, toCrs: string): Coordinates {
+  if (Array.isArray(coords) && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+    // base case: [x, y]
+    return proj4(fromCrs, toCrs, coords as [number, number]);
+  }
+
+  // otherwise recurse through deeper nested coordinate arrays
+  return (coords as NestedCoordinates).map((c) =>
+    transformCoordinates(c as Coordinates, fromCrs, toCrs)
+  ) as Coordinates;
 }
 
 interface FeatureServiceInfoCache {
