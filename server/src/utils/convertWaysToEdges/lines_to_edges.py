@@ -5,6 +5,7 @@ from shapely.ops import split
 
 from find_orphan_lines import find_orphan_lines
 
+
 class LinesToEdgesResult(TypedDict):
     edges: geopandas.GeoDataFrame
     orphans: geopandas.GeoDataFrame
@@ -45,12 +46,13 @@ def lines_to_edges(lines: geopandas.GeoDataFrame, no_orphans: bool = True, *, ad
         additional_split_polygons = additional_split_polygons[additional_split_polygons.is_valid &
                                                               ~additional_split_polygons.is_empty &
                                                               additional_split_polygons.geometry.notna()]
-        
+
         # require onlt polygons
         if not all(additional_split_polygons.geometry.type.isin(['Polygon', 'MultiPolygon'])):
             found_types = additional_split_polygons.geometry.type.unique()
-            raise ValueError(f'All geometries in the input ways GeoDataFrame must be Polygon or MultiPolygon types. Found geometry types: {found_types}')
-        
+            raise ValueError(
+                f'All geometries in the input ways GeoDataFrame must be Polygon or MultiPolygon types. Found geometry types: {found_types}')
+
         print('  Splitting lines by additional polygons...')
         polygons_union = additional_split_polygons.union_all()
         if not polygons_union.is_empty:
@@ -83,7 +85,7 @@ def lines_to_edges(lines: geopandas.GeoDataFrame, no_orphans: bool = True, *, ad
     print('  Generating edge IDs...')
     edges['edge_id'] = edges.index
     edges.set_index('edge_id', inplace=True)
-    
+
     # convert orphans to geodataframe
     print('  Separating orphans...')
     orphans = geopandas.GeoDataFrame(geometry=orphans_list, crs=lines.crs)

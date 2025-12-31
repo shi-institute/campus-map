@@ -9,9 +9,9 @@ def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_thresh
     """
     Given a GeoDataFrame of line geometries, identify unconnected line ends and attempt to connect them
     to the nearest line within a certain threshold distance.
-    
+
     If polygons are specified, unconnected line ends will be extended to the nearest line or polygon edge.
-    
+
     Parameters:
     - lines: GeoDataFrame containing LineString geometries.
     - distance_threshold: Maximum distance within which to search for a line to connect to.
@@ -45,27 +45,27 @@ def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_thresh
 
         # sort by distance (ascending; closest first)
         candidate_lines = candidate_lines.sort_values(by='distance', ascending=True)
-        
+
         # skip if there is a candidate with distance 0
         if not candidate_lines.empty and candidate_lines.iloc[0]['distance'] == 0:
             continue
-        
+
         # if there are no candidate lines AND polygons are provided, also consider polygons
         candidate_polygons: None | geopandas.GeoDataFrame = None
         if candidate_lines.empty and polygons is not None and not polygons.empty and polygons_spatial_index is not None:
-            
+
             # find candidate polygons within the distance threshold
             candidate_polygons_indices = list(polygons_spatial_index.query(
                 node.geometry, predicate='dwithin', distance=distance_threshold, sort=True))
             candidate_polygons = polygons.iloc[candidate_polygons_indices]
-            
+
             # calculate the distance between the node and each candidate polygon
             candidate_polygons['distance'] = candidate_polygons.geometry.apply(
                 lambda geom: node.geometry.distance(geom))
-            
+
             # sort by distance (ascending; closest first)
             candidate_polygons = candidate_polygons.sort_values(by='distance', ascending=True)
-            
+
             # convert polygons to lines (exterior boundaries)
             candidate_lines = geopandas.GeoDataFrame(
                 geometry=candidate_polygons.geometry.boundary,
@@ -93,14 +93,15 @@ def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_thresh
         existing_line = extended_lines.loc[node.line_index].geometry
         if not isinstance(existing_line, LineString):
             continue
-        
+
         # compute a vector from the existing line terminus to the closest point on the candidate line
-        extension_vector_origin = Point(existing_line.coords[0]) if (node.type == 'start') else Point(existing_line.coords[-1])
+        extension_vector_origin = Point(existing_line.coords[0]) if (
+            node.type == 'start') else Point(existing_line.coords[-1])
         extension_vector = (
             closest_point_on_candidate_line.x - extension_vector_origin.x,
             closest_point_on_candidate_line.y - extension_vector_origin.y
         )
-            
+
         # compute the magnitude (length) and unit vector
         extension_vector_magnitude = (extension_vector[0]**2 + extension_vector[1]**2)**0.5
         if extension_vector_magnitude == 0:
@@ -109,9 +110,9 @@ def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_thresh
             extension_vector[0] / extension_vector_magnitude,
             extension_vector[1] / extension_vector_magnitude
         )
-        
+
         # compute the extension point, applying overshoot if specified
-        overshoot_vector = ( # will be (0, 0) if overshoot is 0
+        overshoot_vector = (  # will be (0, 0) if overshoot is 0
             extension_unit_vector[0] * overshoot,
             extension_unit_vector[1] * overshoot
         )
