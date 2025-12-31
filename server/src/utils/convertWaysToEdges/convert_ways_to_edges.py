@@ -65,22 +65,31 @@ def convert_ways_to_edges(ways: geopandas.GeoDataFrame | Path, connection_tolera
 
         print(f"  Dropped {dropped_count} geometries that could not be repaired.")
         print(f"  {len(ways)} geometries remain after cleaning.")
+        
+    # lowercase all column names for consistency
+    ways.columns = [col.lower() for col in ways.columns]
     
-    # only allow lines
-    if not all(ways.geometry.type.isin(['LineString', 'MultiLineString'])):
+    # force geometry requirements
+    if not all(ways.geometry.type.isin(['LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'])):
         found_types = ways.geometry.type.unique()
-        raise ValueError(f'All geometries in the input ways GeoDataFrame must be LineString or MultiLineString types. Found geometry types: {found_types}')
-    
+        raise ValueError(f'All geometries in the input ways GeoDataFrame must be LineString, MultiLineString, Polygon, or MultiPolygon types. Found geometry types: {found_types}')
+    if not any(ways.geometry.type.isin(['LineString', 'MultiLineString'])):
+        raise ValueError('No LineString or MultiLineString geometries found in the input ways GeoDataFrame.')
+    initial_lines_mask = ways.geometry.type.isin(['LineString', 'MultiLineString'])
+    initial_lines = ways[initial_lines_mask].copy()
+    initial_polygons_mask = ways.geometry.type.isin(['Polygon', 'MultiPolygon'])
+    initial_polygons = ways[initial_polygons_mask].copy()
+        
     # explode MultiLineStrings to LineStrings
     print('Exploding MultiLineStrings to LineStrings...')
-    ways = ways.explode(index_parts=False).reset_index(drop=True)
+    initial_lines = initial_lines.explode(index_parts=False).reset_index(drop=True)
 
     # ----------------------------------------
     # create edges:
     
     # step 1: split at intersections
     print('[e1] Splitting ways at intersections...')
-    initial_lines_to_edges_result = lines_to_edges(ways, no_orphans)
+    initial_lines_to_edges_result = lines_to_edges(initial_lines, no_orphans, additional_split_polygons=initial_polygons)
     initial_edges = initial_lines_to_edges_result['edges']
     
     # step 2: remove all lines that are shorter than the minimum edge length
@@ -91,7 +100,7 @@ def convert_ways_to_edges(ways: geopandas.GeoDataFrame | Path, connection_tolera
     # step 3: connect edges that are within the connection tolerance, specifying an overshoot
     #         distance so that we can split at intersections again
     print(f'[e3] Connecting unconnected line ends within tolerance of {connection_tolerance}...')
-    connected_edges = resolve_unconnected_line_ends(filtered_edges, connection_tolerance, overshoot=0.000001)
+    connected_edges = resolve_unconnected_line_ends(filtered_edges, connection_tolerance, overshoot=0.000001, polygons=initial_polygons)
     
     # step 4: split any remaining lines at intersections again (to catch new intersections created by connections)
     print('[e4] Splitting connected lines at intersections again...')

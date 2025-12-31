@@ -1,6 +1,7 @@
 from typing import TypedDict
 import geopandas
 from shapely import LineString, MultiLineString
+from shapely.ops import split
 
 from find_orphan_lines import find_orphan_lines
 
@@ -9,7 +10,7 @@ class LinesToEdgesResult(TypedDict):
     orphans: geopandas.GeoDataFrame
 
 
-def lines_to_edges(lines: geopandas.GeoDataFrame, no_orphans: bool = True) -> LinesToEdgesResult:
+def lines_to_edges(lines: geopandas.GeoDataFrame, no_orphans: bool = True, *, additional_split_polygons: geopandas.GeoDataFrame | None = None) -> LinesToEdgesResult:
     """
     Given a GeoDataFrame of line geometries, split lines at their intersection points.
     Returns a new GeoDataFrame with the split lines.
@@ -37,6 +38,23 @@ def lines_to_edges(lines: geopandas.GeoDataFrame, no_orphans: bool = True) -> Li
         else:
             print(
                 f'    Warning: Found {len(orphans_list)} orphan lines. Orphan lines indicate connectivity issues in the input data.')
+
+    # split the unioned lines by any additional polygons that are provided
+    if additional_split_polygons is not None and not additional_split_polygons.empty:
+        # require valid geometries
+        additional_split_polygons = additional_split_polygons[additional_split_polygons.is_valid &
+                                                              ~additional_split_polygons.is_empty &
+                                                              additional_split_polygons.geometry.notna()]
+        
+        # require onlt polygons
+        if not all(additional_split_polygons.geometry.type.isin(['Polygon', 'MultiPolygon'])):
+            found_types = additional_split_polygons.geometry.type.unique()
+            raise ValueError(f'All geometries in the input ways GeoDataFrame must be Polygon or MultiPolygon types. Found geometry types: {found_types}')
+        
+        print('  Splitting lines by additional polygons...')
+        polygons_union = additional_split_polygons.union_all()
+        if not polygons_union.is_empty:
+            all_lines_union = split(all_lines_union, polygons_union)
 
     # extract each individual line from the unioned geometry
     print('  Exploding split lines...')

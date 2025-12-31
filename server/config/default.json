@@ -4,7 +4,8 @@
       "data.trails_provisional",
       "data.4wd_road_provisional",
       "data.abandoned_road_provisional",
-      "data.sidewalks_provisional"
+      "data.sidewalks_provisional",
+      "data.parking_lot_provisional"
     ]
   }
 }

@@ -1,20 +1,25 @@
 import geopandas
+import pandas
 from shapely import LineString, MultiLineString, Point
 
 from get_line_termini import get_line_termini
 
 
-def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_threshold: float = 1.0, overshoot: float = 0.0) -> geopandas.GeoDataFrame:
+def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_threshold: float = 1.0, overshoot: float = 0.0, *, polygons: geopandas.GeoDataFrame | None = None) -> geopandas.GeoDataFrame:
     """
     Given a GeoDataFrame of line geometries, identify unconnected line ends and attempt to connect them
     to the nearest line within a certain threshold distance.
+    
+    If polygons are specified, unconnected line ends will be extended to the nearest line or polygon edge.
     
     Parameters:
     - lines: GeoDataFrame containing LineString geometries.
     - distance_threshold: Maximum distance within which to search for a line to connect to.
     - overshoot: Additional distance to extend beyond the nearest line when connecting.
+    - polygons (optional): GeoDataFrame containing Polygon geometries.
     """
     lines_spatial_index = lines.sindex
+    polygons_spatial_index = polygons.sindex if polygons is not None else None
 
     # find all terminal nodes
     terminal_nodes = get_line_termini(lines)
@@ -25,26 +30,53 @@ def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_thresh
     for index, node in terminal_nodes.iterrows():
 
         # find candidate lines within the distance threshold
-        candidates_indices = list(lines_spatial_index.query(
+        candidate_lines_indices = list(lines_spatial_index.query(
             node.geometry, predicate='dwithin', distance=distance_threshold, sort=True))
-        candidates = lines.iloc[candidates_indices]
+        candidate_lines = lines.iloc[candidate_lines_indices]
 
-        # exclude candidates that are the same as the node's line
-        candidates = candidates[candidates.index != node.line_index]
-        if not isinstance(candidates, geopandas.GeoDataFrame) or candidates.empty:
-            continue
+        # exclude candidate lines that are the same as the node's line
+        candidate_lines = candidate_lines[candidate_lines.index != node.line_index]
+        if not isinstance(candidate_lines, geopandas.GeoDataFrame) or candidate_lines.empty:
+            candidate_lines = geopandas.GeoDataFrame(columns=lines.columns, crs=lines.crs)
 
         # calculate the distance between the node and each candidate line
-        candidates['distance'] = candidates.geometry.apply(
+        candidate_lines['distance'] = candidate_lines.geometry.apply(
             lambda geom: node.geometry.distance(geom))
 
         # sort by distance (ascending; closest first)
-        candidates = candidates.sort_values(by='distance', ascending=True)
+        candidate_lines = candidate_lines.sort_values(by='distance', ascending=True)
+        
+        # skip if there is a candidate with distance 0
+        if not candidate_lines.empty and candidate_lines.iloc[0]['distance'] == 0:
+            continue
+        
+        # if there are no candidate lines AND polygons are provided, also consider polygons
+        candidate_polygons: None | geopandas.GeoDataFrame = None
+        if candidate_lines.empty and polygons is not None and not polygons.empty and polygons_spatial_index is not None:
+            
+            # find candidate polygons within the distance threshold
+            candidate_polygons_indices = list(polygons_spatial_index.query(
+                node.geometry, predicate='dwithin', distance=distance_threshold, sort=True))
+            candidate_polygons = polygons.iloc[candidate_polygons_indices]
+            
+            # calculate the distance between the node and each candidate polygon
+            candidate_polygons['distance'] = candidate_polygons.geometry.apply(
+                lambda geom: node.geometry.distance(geom))
+            
+            # sort by distance (ascending; closest first)
+            candidate_polygons = candidate_polygons.sort_values(by='distance', ascending=True)
+            
+            # convert polygons to lines (exterior boundaries)
+            candidate_lines = geopandas.GeoDataFrame(
+                geometry=candidate_polygons.geometry.boundary,
+                index=candidate_polygons.index,
+                crs=polygons.crs
+            )
 
         # if there is not a candidate, skip further processing
-        if candidates.empty:
+        if candidate_lines.empty:
             continue
-        best_candidate = candidates.iloc[0]
+        best_candidate = candidate_lines.iloc[0]
 
         # ensure the best candidate is a LineString or MultiLineString
         if not isinstance(best_candidate.geometry, (LineString, MultiLineString)):
@@ -97,5 +129,14 @@ def resolve_unconnected_line_ends(lines: geopandas.GeoDataFrame, distance_thresh
 
         # update the way geometry
         extended_lines.at[node.line_index, 'geometry'] = new_line  # type: ignore[assignment]
+
+    # get the outlines of the polygons
+    polygon_outlines: None | geopandas.GeoDataFrame = None
+    if polygons is not None and not polygons.empty:
+        polygon_outlines = geopandas.GeoDataFrame(
+            geometry=polygons.geometry.boundary,
+            index=polygons.index,
+            crs=polygons.crs
+        )
 
     return extended_lines
