@@ -65,6 +65,7 @@ RUN sudo -u postgres /usr/lib/postgresql/18/bin/pg_ctl -D $PGDATA -o "-c listen_
 # copy nodejs application files
 WORKDIR /app/server
 COPY ./package*.json ./
+COPY ./patches/ ./patches/
 RUN bash -c 'eval "$(fnm env)" && npm install'
 
 # copy over source files
