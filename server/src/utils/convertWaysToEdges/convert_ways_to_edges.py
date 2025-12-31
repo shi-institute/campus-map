@@ -1,9 +1,14 @@
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import geopandas
+from itertools import combinations
+import pandas
+from pandas import Series
 from shapely import make_valid
 from shapely.validation import explain_validity
+from shapely.geometry import LineString, Point, Polygon, MultiLineString, MultiPolygon
+from shapely.ops import split
 
 from find_orphan_lines import find_orphan_lines
 from get_line_termini import get_line_termini
@@ -110,13 +115,88 @@ def convert_ways_to_edges(ways: geopandas.GeoDataFrame | Path, connection_tolera
         
     # step 5. remove the leftover short edges again
     print(f'[e5] Removing edges shorter than minimum edge length of {min_edge_length} again...')
-    edges = geopandas.GeoDataFrame(edges_with_small_extensions[edges_with_small_extensions.geometry.length > 0.000001], crs=connected_edges.crs)
+    edges = geopandas.GeoDataFrame(edges_with_small_extensions[edges_with_small_extensions.geometry.length >= min_edge_length], crs=connected_edges.crs)
 
     # ----------------------------------------
 
     # create nodes (includes duplicates)
     print('Creating nodes from edge termini...')
     nodes = get_line_termini(edges)
+    
+    # ----------------------------------------
+    # integrate polygons into edges:
+    
+    if not initial_polygons.empty:
+        # for each polygon, find the line termini that touch its exterior
+        print('[p1] Finding line termini touching polygon edges...')
+        matches: list[tuple[Polygon | MultiPolygon, geopandas.GeoDataFrame, Series[Any]]] = []
+        for polygon_index, polygon in initial_polygons.iterrows():
+            polygon_boundary = polygon.geometry.boundary # usually gives MultiLineString
+            touching_nodes = nodes[nodes.geometry.within(polygon_boundary.buffer(0.000001))]
+            polygon_column_data = polygon.drop(labels='geometry')
+            matches.append((polygon.geometry, touching_nodes, polygon_column_data))
+        
+        # for each polygon, draw straight lines between all touching nodes
+        print('[p2] Creating edges between touching nodes along polygon edges...')
+        polygon_skeletons: list[LineString] = []
+        for polygon_geom, touching_nodes, polygon_info in matches:
+            if len(touching_nodes) < 2:
+                continue
+            
+            # create all unique pairs of touching points
+            if not all(touching_nodes.geometry.type.isin(['Point'])):
+                continue
+            touching_points = cast(list[Point], touching_nodes.geometry.tolist())
+            all_pairs = combinations(touching_points, 2)
+            
+            # create lines between each pair of touching points
+            for point_a, point_b in all_pairs:
+                line = LineString([point_a, point_b])
+                
+                # erase any portion of the line that falls outside the polygon
+                line_within_polygon = line.intersection(polygon_geom)
+                if line_within_polygon.is_empty:
+                    continue
+                if isinstance(line_within_polygon, MultiLineString):
+                    for segment in line_within_polygon.geoms:
+                        if isinstance(segment, LineString) and segment.length >= min_edge_length:
+                            polygon_skeletons.append(segment)
+                elif isinstance(line_within_polygon, LineString) and line_within_polygon.length >= min_edge_length:
+                    polygon_skeletons.append(line)
+                
+        polygon_skeletons_gdf = geopandas.GeoDataFrame(
+            columns=edges.columns,
+            geometry=polygon_skeletons,
+            crs=intermediate_crs,
+        )
+        polygon_skeletons_gdf['table_name'] = '__skeletons'
+        
+        # for each polygon, also create segment the outline by the touching nodes
+        print('[p3] Creating polygon outline edges segmented by touching line termini...')
+        polygon_outlines_gdf = geopandas.GeoDataFrame(
+            columns=edges.columns,
+            geometry=[],
+            crs=intermediate_crs,
+        )
+        for polygon_geometry, touching_nodes, polygon_info in matches:
+            if (len(touching_nodes) == 0):
+                continue
+            
+            polygon_boundary = polygon_geometry.boundary
+            split_polygon_boundary = split(polygon_boundary, touching_nodes.geometry.union_all())
+            for segment in split_polygon_boundary.geoms:
+                if isinstance(segment, LineString):
+                    new_row = geopandas.GeoDataFrame([polygon_info], geometry=[segment], crs=intermediate_crs)
+                    polygon_outlines_gdf = cast(geopandas.GeoDataFrame, pandas.concat([polygon_outlines_gdf, new_row], ignore_index=True))
+                        
+        # consolidate all edges and re-assign ids
+        print('[p4] Consolidating polygon edges with existing edges...')
+        edges = cast(geopandas.GeoDataFrame, pandas.concat([edges, polygon_skeletons_gdf, polygon_outlines_gdf], ignore_index=True))
+        edges.reset_index(drop=True, inplace=True)
+        edges['edge_id'] = edges.index
+        
+    # ----------------------------------------
+        
 
     # consolidate by geometry to remove duplicates, but keep track of all associated edge_ids
     print('Consolidating nodes to remove duplicates...')
