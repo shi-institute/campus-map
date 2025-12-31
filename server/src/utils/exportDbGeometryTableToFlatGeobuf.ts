@@ -32,7 +32,7 @@ export async function exportDbGeometryTableToFlatGeobuf(
       }' -sql "SELECT *, fid::text FROM \\"${schema}\\".\\"${tableName}\\"" -nln '${tableName}' ${
         // cast fid to text necause ogr2ogr drops big ints
         generateIndex ? '-lco SPATIAL_INDEX=YES' : ''
-      } -progress --debug on`,
+      } -t_srs 'EPSG:4326' -progress --debug on`,
       true,
       true
     );
