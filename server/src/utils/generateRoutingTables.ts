@@ -32,10 +32,11 @@ export async function generateRoutingTables(inputFolder: string, options: Routin
 
   // create a merged ways sources fgb file using the first ways source layer
   // and add a sequential way_id column (ROW_NUMBER() OVER () AS way_id)
+  const firstLayerName = await getFirstLayerName(waysFgbFiles[0]!);
   await exec(
     `ogr2ogr -f Flatgeobuf "${mergedWaysFgbPath}" "${waysFgbFiles[0]}" \
     -t_srs EPSG:4326 \
-    -sql  "SELECT *, ROW_NUMBER() OVER () AS way_id FROM '${await getFirstLayerName(waysFgbFiles[0]!)}'" \
+    -sql  "SELECT *, ROW_NUMBER() OVER () AS way_id, CAST('${firstLayerName}' AS TEXT) AS table_name FROM '${firstLayerName}'" \
     -dialect SQLite \
     -nln ways`,
     false,
@@ -65,7 +66,7 @@ export async function generateRoutingTables(inputFolder: string, options: Routin
     await exec(
       `ogr2ogr -f FlatGeobuf -update -append "${mergedWaysFgbPath}" "${waysFgbFile}" \
     -t_srs EPSG:4326 \
-    -sql "SELECT *, ROW_NUMBER() OVER () + ${edgeIdOffset} AS way_id FROM '${layerName}'" \
+    -sql "SELECT *, ROW_NUMBER() OVER () + ${edgeIdOffset} AS way_id, CAST('${layerName}' AS TEXT) AS table_name FROM '${layerName}'" \
     -dialect SQLite \
     -nln ways`,
       false,
