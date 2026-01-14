@@ -1,9 +1,10 @@
 <script lang="ts">
   import { LeftPane } from '$lib/components';
   import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
-  import { goBack, goto, route } from '$lib/navigation';
+  import { goBack, goto, route, url } from '$lib/navigation';
   import {
     copyToClipboard,
+    debounce,
     getLabelFromProperties,
     implementPitchAndRollOnMiddleClickAndDrag,
     implementZoomOnRightClickAndDrag,
@@ -20,6 +21,7 @@
     RasterDEMTileSource,
     RasterLayer,
     RasterTileSource,
+    RawLayer,
   } from 'svelte-maplibre-gl';
 
   let center = $state([-82.43915171317023, 34.92549441017741] as [number, number]); // New York City
@@ -27,6 +29,7 @@
   let map = $state<maplibregl.Map | undefined>(undefined);
   let mapFrameHeight = $state<number | undefined>(undefined);
   let mapFrameWidth = $state<number | undefined>(undefined);
+  let mapLoadedOnce = $state(false);
 
   /**
    * Implements right click to copy coordinates to clipboard
@@ -142,6 +145,228 @@
       });
     }
   });
+
+  let rootStyleData = $state<maplibregl.StyleSpecification>();
+  let rootStyleLoading = $state(true);
+  let rootStyleError = $state<Error | null>(null);
+  $effect(() => {
+    const url = `${import.meta.env.VITE_MAP_SERVER_URL}/rest/services/FurmanCampusMap/VectorTileServer/resources/styles/root.json`;
+    rootStyleLoading = true;
+    rootStyleError = null;
+    fetch(url)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch map style: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        rootStyleData = data;
+      })
+      .catch((error) => {
+        rootStyleError = error;
+      })
+      .finally(() => {
+        rootStyleLoading = false;
+      });
+  });
+
+  /**
+   * A utility function for customizing each layer in a MapLibre style. It takes a callback function that
+   * is caled for each style. Return the unmodified or modified layer specification, or return null to
+   * remove the layer.
+   */
+  function customizeStyle(
+    styleData: maplibregl.StyleSpecification | undefined,
+    transformLayer: (
+      layer: maplibregl.LayerSpecification
+    ) => maplibregl.LayerSpecification | maplibregl.LayerSpecification[] | null
+  ) {
+    if (!styleData) {
+      return styleData;
+    }
+
+    // deep copy the style data
+    const customizedStyle = JSON.parse(JSON.stringify(styleData)) as maplibregl.StyleSpecification;
+
+    // transform each layer using the callback function
+    customizedStyle.layers = customizedStyle.layers
+      // require consumers to make a copy first
+      .map((layer) => Object.freeze(layer))
+      .flatMap(transformLayer)
+      .filter((layer) => !!layer);
+
+    return customizedStyle;
+  }
+
+  /**
+   * Maplibre line dash arrays are scaled in between integer zoom levels, which can make
+   * dashes and their gaps appear larger than desired at non-integer zoom levels. This function
+   * creates a line dash array expression that adjusts the dash and gap lengths based on the
+   * current zoom level, making them appear more consistent across zoom levels.
+   */
+  function createZoomResilientLineDashArray(
+    dashLength: number,
+    gapLength: number,
+    { startZoom = 0, endZoom = 22, step = 0.1 } = {}
+  ): maplibregl.DataDrivenPropertyValueSpecification<number[]> {
+    const expr: any[] = ['step', ['zoom'], ['literal', [dashLength, gapLength]]];
+    const steps = Math.floor((endZoom - startZoom) / step);
+
+    for (let i = 0; i <= steps; i++) {
+      const z = +(startZoom + i * step);
+      const scale = (z % 1) + 1;
+      const scaled = [+(dashLength / scale).toFixed(5), +(gapLength / scale).toFixed(5)];
+      expr.push(z - 0.0000001, ['literal', scaled]);
+    }
+
+    return expr;
+  }
+
+  let printMapStyle = $state<maplibregl.StyleSpecification>();
+  $effect(() => {
+    printMapStyle = customizeStyle(rootStyleData, (_layer) => {
+      const layer = JSON.parse(JSON.stringify(_layer)) as typeof _layer;
+
+      if (layer.id === 'trails_provisional') {
+        layer.paint = {
+          'line-color': '#000',
+          'line-width': 2.5,
+          'line-dasharray': createZoomResilientLineDashArray(0.5, 3),
+        };
+        layer.layout = { 'line-cap': 'round', 'line-join': 'bevel' };
+      }
+
+      if (layer.id === '4wd_road_provisional') {
+        const linePaint: maplibregl.LayerSpecification['paint'] = {
+          'line-color': '#895a44',
+          'line-width': 1.75,
+          'line-dasharray': createZoomResilientLineDashArray(5, 2),
+        };
+
+        const lineLayout: maplibregl.LayerSpecification['layout'] = {
+          'line-cap': 'butt',
+          'line-join': 'bevel',
+        };
+
+        return [
+          {
+            ...layer,
+            id: '4wd_road_provisional',
+            paint: { ...linePaint, 'line-offset': 2 },
+            layout: lineLayout,
+          },
+          {
+            ...layer,
+            id: '4wd_road_provisional-right',
+            paint: { ...linePaint, 'line-offset': -2 },
+            layout: lineLayout,
+          },
+        ] as maplibregl.LayerSpecification[];
+      }
+
+      if (layer.id === 'abandoned_road_provisional') {
+        const linePaint: maplibregl.LayerSpecification['paint'] = {
+          'line-color': '#992E1E',
+          'line-width': 1.75,
+          'line-opacity': 0.5,
+          'line-dasharray': createZoomResilientLineDashArray(5, 6),
+        };
+
+        const lineLayout: maplibregl.LayerSpecification['layout'] = {
+          'line-cap': 'butt',
+          'line-join': 'bevel',
+        };
+
+        return [
+          {
+            ...layer,
+            id: 'abandoned_road_provisional',
+            paint: { ...linePaint, 'line-offset': 2 },
+            layout: lineLayout,
+          },
+          {
+            ...layer,
+            id: 'abandoned_road_provisional-right',
+            paint: { ...linePaint, 'line-offset': -2 },
+            layout: lineLayout,
+          },
+        ] as maplibregl.LayerSpecification[];
+      }
+
+      if (layer.id === 'perennial_lake_provisional') {
+        layer.paint = { 'line-color': '#57778b' };
+      }
+
+      if (layer.id === 'perennial_stream_provisional') {
+        layer.paint = { 'line-color': '#57778b' };
+      }
+
+      if (layer.id === 'sidewalks_provisional') {
+        layer.paint = { 'line-color': '#76787b', 'line-width': 2 };
+      }
+
+      return layer;
+    });
+  });
+
+  const selectedStyleName = $state<string>($url.searchParams.get('style') || 'print');
+
+  function getStyle(name: string | null) {
+    if (name === 'print' && printMapStyle) {
+      return { ...printMapStyle, name: 'print' };
+    }
+
+    if (!rootStyleData) {
+      return undefined;
+    }
+    return { ...rootStyleData, name: 'default' };
+  }
+
+  const selectedStyleData = $derived(getStyle($url.searchParams.get('style')));
+
+  function updateMapStyle(map: maplibregl.Map) {
+    if (selectedStyleData) {
+      map.setStyle(selectedStyleData, {
+        diff: true,
+        transformStyle: (previous, next) => {
+          const newSources = Object.keys(next.sources);
+
+          if (previous && next) {
+            // preserve previous sources unless they have changed
+            for (const sourceId in previous.sources) {
+              if (!newSources.includes(sourceId)) {
+                next.sources[sourceId] = previous.sources[sourceId];
+              }
+            }
+
+            // preserve layers that belong to unmodified sources
+            for (const layer of previous.layers) {
+              if ('source' in layer && layer.source && !newSources.includes(layer.source)) {
+                // only add the layer if it doesn't already exist in the next style
+                if (!next.layers.find((l) => l.id === layer.id)) {
+                  next.layers.push(layer);
+                }
+              }
+            }
+          }
+
+          return next;
+        },
+      });
+    }
+  }
+
+  const debouncedUpdateMapStyle = debounce(updateMapStyle, 10);
+
+  // $effect(() => {
+  //   if (selectedStyleData && mapLoadedOnce) {
+  //     console.log('updating map style due to selectedStyleData change');
+  //     map?.once('idle', (event) => {
+  //       debouncedUpdateMapStyle(event.target);
+  //     });
+  //   }
+  // });
 </script>
 
 <div
@@ -151,170 +376,193 @@
   bind:clientWidth={mapFrameWidth}
   data-map-width={mapFrameWidth}
 >
-  <MapLibre
-    bind:map
-    class="map-container"
-    bind:center
-    bind:zoom
-    style={`${import.meta.env.VITE_MAP_SERVER_URL}/rest/services/FurmanCampusMap/VectorTileServer/resources/styles/root.json`}
-    attributionControl={false}
-    oncontextmenu={handleRightClick}
-    doubleClickZoom={false}
-    dragPan={true}
-    dragRotate={false}
-    hash={true}
-    maxPitch={85}
-    autoloadGlobalCss={false}
-    onload={(event) => {
-      const map = event.target;
+  {#if rootStyleData}
+    <MapLibre
+      bind:map
+      class="map-container"
+      bind:center
+      bind:zoom
+      style={rootStyleData}
+      attributionControl={false}
+      oncontextmenu={handleRightClick}
+      doubleClickZoom={false}
+      dragPan={true}
+      dragRotate={false}
+      hash={true}
+      maxPitch={85}
+      autoloadGlobalCss={false}
+      onload={(event) => {
+        const map = event.target;
 
-      // when zoomed out to world view, use globe projection
-      map.setProjection({ type: 'globe' });
+        // when zoomed out to world view, use globe projection
+        map.setProjection({ type: 'globe' });
 
-      // zoom in and out with right click and drag
-      implementZoomOnRightClickAndDrag(map);
+        // zoom in and out with right click and drag
+        implementZoomOnRightClickAndDrag(map);
 
-      // adjust pitch and roll with middle click and drag
-      implementPitchAndRollOnMiddleClickAndDrag(map);
-    }}
-    onpitchend={(event) => {
-      const map = event.target;
+        // adjust pitch and roll with middle click and drag
+        implementPitchAndRollOnMiddleClickAndDrag(map);
 
-      // if the pitch is 0 degrees, remove terrain
-      if (map.transform.pitch === 0) {
-        if (map.getTerrain()) {
-          map.setTerrain(null);
+        mapLoadedOnce = true;
+      }}
+      onpitchend={(event) => {
+        const map = event.target;
+
+        // if the pitch is 0 degrees, remove terrain
+        if (map.transform.pitch === 0) {
+          if (map.getTerrain()) {
+            map.setTerrain(null);
+          }
+          return;
         }
-        return;
-      }
 
-      // if the pitch is greater than 0 degrees, add terrain
-      if (!map.getTerrain()) {
-        // TODO: figure out why there are weird glitches when toggling terrain on and off
-        // map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
-      }
-    }}
-  >
-    <LogoHeader />
-    <CustomControl position="bottom-left" class="pane-control">
-      <Panes.Directions
-        {mapFrameHeight}
-        {mapFrameWidth}
-        bind:minimized={panesAreMinimized}
-        bind:open={directionsPaneIsOpen}
-        visible={visiblePane === 'navigation'}
-        bind:startLngLat={directionsStartLngLat}
-        bind:endLngLat={directionsEndLngLat}
-        onNewUrl={async (url, shouldReplace) => {
-          goto(url, shouldReplace);
-        }}
-        onClose={() => goBack()}
-      />
-
-      <Panes.Place
-        {mapFrameHeight}
-        {mapFrameWidth}
-        bind:minimized={panesAreMinimized}
-        bind:open={placePaneIsOpen}
-        visible={visiblePane === 'place'}
-        {place}
-        onNewUrl={async (url, shouldReplace) => {
-          goto(url, shouldReplace);
-        }}
-        onClose={() => goBack()}
-      />
-
-      <LeftPane
-        title="Search"
-        {mapFrameHeight}
-        {mapFrameWidth}
-        bind:minimized={panesAreMinimized}
-        open
-        visible={visiblePane === 'search'}
-        hideCloseButton
-        style="user-select: none;"
-      >
-        <p>Search for features on the map (e.g., buildings, trails, points of interest).</p>
-        <input type="text" placeholder="Search..." bind:value={searchBoxValue} />
-        <button onclick={() => (searchBoxValue = '')}>clear</button>
-
-        <p>Or get directions:</p>
-        <button
-          onclick={() => {
-            visiblePane = 'navigation';
-            directionsPaneIsOpen = true;
+        // if the pitch is greater than 0 degrees, add terrain
+        if (!map.getTerrain()) {
+          // TODO: figure out why there are weird glitches when toggling terrain on and off
+          // map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+        }
+      }}
+    >
+      <LogoHeader />
+      <CustomControl position="bottom-left" class="pane-control">
+        <Panes.Directions
+          {mapFrameHeight}
+          {mapFrameWidth}
+          bind:minimized={panesAreMinimized}
+          bind:open={directionsPaneIsOpen}
+          visible={visiblePane === 'navigation'}
+          bind:startLngLat={directionsStartLngLat}
+          bind:endLngLat={directionsEndLngLat}
+          onNewUrl={async (url, shouldReplace) => {
+            goto(url, shouldReplace);
           }}
+          onClose={() => goBack()}
+        />
+
+        <Panes.Place
+          {mapFrameHeight}
+          {mapFrameWidth}
+          bind:minimized={panesAreMinimized}
+          bind:open={placePaneIsOpen}
+          visible={visiblePane === 'place'}
+          {place}
+          onNewUrl={async (url, shouldReplace) => {
+            goto(url, shouldReplace);
+          }}
+          onClose={() => goBack()}
+        />
+
+        <LeftPane
+          title="Search"
+          {mapFrameHeight}
+          {mapFrameWidth}
+          bind:minimized={panesAreMinimized}
+          open
+          visible={visiblePane === 'search'}
+          hideCloseButton
+          style="user-select: none;"
         >
-          Get directions
-        </button>
+          <p>Search for features on the map (e.g., buildings, trails, points of interest).</p>
+          <input type="text" placeholder="Search..." bind:value={searchBoxValue} />
+          <button onclick={() => (searchBoxValue = '')}>clear</button>
 
-        <h2>
-          Results
-          {#if searchResult.isPending}
-            ⧗
+          <p>Or get directions:</p>
+          <button
+            onclick={() => {
+              visiblePane = 'navigation';
+              directionsPaneIsOpen = true;
+            }}
+          >
+            Get directions
+          </button>
+
+          <h2>
+            Results
+            {#if searchResult.isPending}
+              ⧗
+            {/if}
+          </h2>
+
+          {#if searchResult.value}
+            <p>Found {searchResult.value.features.length} result(s).</p>
+
+            <ul>
+              {#each searchResult.value.features as feature}
+                <li>
+                  <a
+                    href={feature.properties.__pathname}
+                    onclick={(event) => {
+                      event.preventDefault();
+                      goto(feature.properties.__pathname);
+                    }}
+                  >
+                    From <strong>{feature.properties.__layerId}</strong>:
+                    {feature.properties.__label}
+                    {feature.properties.__centroid
+                      ? ` (Centroid: ${feature.properties.__centroid[1].toFixed(6)}, ${feature.properties.__centroid[0].toFixed(6)})`
+                      : ''}
+                  </a>
+                </li>
+              {/each}
+            </ul>
+          {:else if searchResult.error}
+            <p>
+              Error performing search: {searchResult.error instanceof Error
+                ? searchResult.error.message
+                : searchResult.error}
+            </p>
+          {:else if searchResult.isPending}
+            <p>Searching...</p>
+          {:else if !searchBoxValue}
+            <p>Enter a search term to see results.</p>
           {/if}
-        </h2>
+        </LeftPane>
+      </CustomControl>
 
-        {#if searchResult.value}
-          <p>Found {searchResult.value.features.length} result(s).</p>
+      <SceneFooter position="bottom-right" />
+      <ThemeSwitcher position="bottom-right" />
+      <NavigationControl position="top-right" />
+      <RasterTileSource
+        tiles={['https://tile.openstreetmap.org/{z}/{x}/{y}.png']}
+        maxzoom={19}
+        attribution="&copy; OpenStreetMap contributors"
+      >
+        <!-- show the raster tiles before the first layer in the vector tiles, which ensures it is the bottom layer (basemap) -->
+        <RasterLayer paint={{ 'raster-opacity': 0.2 }} />
+      </RasterTileSource>
 
-          <ul>
-            {#each searchResult.value.features as feature}
-              <li>
-                <a
-                  href={feature.properties.__pathname}
-                  onclick={(event) => {
-                    event.preventDefault();
-                    goto(feature.properties.__pathname);
-                  }}
-                >
-                  From <strong>{feature.properties.__layerId}</strong>:
-                  {feature.properties.__label}
-                  {feature.properties.__centroid
-                    ? ` (Centroid: ${feature.properties.__centroid[1].toFixed(6)}, ${feature.properties.__centroid[0].toFixed(6)})`
-                    : ''}
-                </a>
-              </li>
-            {/each}
-          </ul>
-        {:else if searchResult.error}
-          <p>
-            Error performing search: {searchResult.error instanceof Error
-              ? searchResult.error.message
-              : searchResult.error}
-          </p>
-        {:else if searchResult.isPending}
-          <p>Searching...</p>
-        {:else if !searchBoxValue}
-          <p>Enter a search term to see results.</p>
-        {/if}
-      </LeftPane>
-    </CustomControl>
+      {#each selectedStyleData?.layers.filter((layer) => layer.type === 'line') as layer}
+        {@const key = layer.source + '-' + layer['source-layer'] + '-' + layer.id}
+        {#key key}
+          <RawLayer
+            type={layer.type}
+            source={layer.source}
+            source-layer={layer['source-layer']}
+            filter={layer.filter}
+            layout={layer.layout}
+            paint={layer.paint}
+            maxzoom={layer.maxzoom}
+            minzoom={layer.minzoom}
+            metadata={layer.metadata}
+            id={layer.id}
+          />
+        {/key}
+      {/each}
 
-    <SceneFooter position="bottom-right" />
-    <ThemeSwitcher position="bottom-right" />
-    <NavigationControl position="top-right" />
-    <RasterTileSource
-      tiles={['https://tile.openstreetmap.org/{z}/{x}/{y}.png']}
-      maxzoom={19}
-      attribution="&copy; OpenStreetMap contributors"
-    >
-      <!-- show the raster tiles before the first layer in the vector tiles, which ensures it is the bottom layer (basemap) -->
-      <RasterLayer beforeId="4wd_road_provisional" paint={{ 'raster-opacity': 0.2 }} />
-    </RasterTileSource>
-    <RasterDEMTileSource
-      id="terrain"
-      tiles={['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']}
-      minzoom={0}
-      maxzoom={15}
-      encoding="terrarium"
-      attribution="<a href='https://github.com/tilezen/joerd/blob/master/docs/attribution.md'>Mapzen (Terrain)</a>"
-    >
-      <!-- <Terrain /> -->
-      <!-- TODO: enable hillshade when in hiking/trails mode -->
-      <!-- <HillshadeLayer /> -->
-    </RasterDEMTileSource>
-  </MapLibre>
+      <RasterDEMTileSource
+        id="terrain"
+        tiles={['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']}
+        minzoom={0}
+        maxzoom={15}
+        encoding="terrarium"
+        attribution="<a href='https://github.com/tilezen/joerd/blob/master/docs/attribution.md'>Mapzen (Terrain)</a>"
+      >
+        <!-- <Terrain /> -->
+        <!-- TODO: enable hillshade when in hiking/trails mode -->
+        <!-- <HillshadeLayer /> -->
+      </RasterDEMTileSource>
+    </MapLibre>
+  {/if}
 </div>
 
 <style>

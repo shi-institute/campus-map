@@ -1,6 +1,7 @@
 export { computeGeoJsonBounds } from './computeGeoJsonBounds.js';
 export { convertRemToPixels } from './convertRemToPixesl.js';
 export { copyToClipboard } from './copyToClipboard.js';
+export { debounce } from './debounce.js';
 export { getAvailableFeatureServices } from './getAvailableFeatureServices.js';
 export { getLabelFromProperties } from './getLabelFromProperties.js';
 export { implementPitchAndRollOnMiddleClickAndDrag } from './implementPitchAndRollOnMiddleClickAndDrag.js';
