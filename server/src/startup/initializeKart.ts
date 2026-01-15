@@ -43,7 +43,8 @@ export async function initializeKart() {
     console.log('  Pulled latest changes.');
   }
 
-  await generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder, {
+  // generate vector tiles in the background
+  generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder, {
     waysLayers: config.get<string[]>('campusmap.waysLayers'),
   });
 }

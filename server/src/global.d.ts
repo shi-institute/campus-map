@@ -124,3 +124,61 @@ declare module 'koop-provider-pg' {
 
   export default pg;
 }
+
+declare module 'passport-activedirectory' {
+  import ActiveDirectory from 'activedirectory2';
+  import { Strategy as PassportStrategy } from 'passport';
+
+  interface ActiveDirectoryStrategyOptions {
+    integrated?: boolean;
+    ldap: ActiveDirectory;
+  }
+
+  interface Profile {
+    id: unknown;
+    displayName?: string;
+    name: {
+      familyName?: string;
+      givenName?: string;
+    };
+    emails?: { value: string }[];
+    _json: {
+      dn: string;
+      displayName?: string;
+      givenName?: string;
+      /** family name */
+      sn?: string;
+      userPrincipalName?: string;
+      sAMAccountName?: string;
+      mail?: string;
+      description?: string;
+      [key: string]: unknown;
+    };
+  }
+
+  class ActiveDirectoryStrategy extends PassportStrategy {
+    constructor(
+      options: ActiveDirectoryStrategyOptions,
+      verify: (
+        profile: Profile,
+        ad: ActiveDirectory,
+        done: (error: Error | null, user?: Express.User) => void
+      ) => void
+    );
+  }
+
+  export default ActiveDirectoryStrategy;
+}
+
+declare namespace Express {
+  interface User {
+    /** Do not use for idneitification! This ID may repeat if an employee used to be a student. */
+    employeeId: string;
+    /** The full unique LDAP distinguished name of the user */
+    distinguishedName: string;
+    /** Unique identifier for each account in the format username@domain */
+    userPrincipalName: string;
+    displayName?: string;
+    isGisAdmin: boolean;
+  }
+}

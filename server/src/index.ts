@@ -8,6 +8,7 @@ import { IncomingMessage, ServerResponse } from 'http';
 import Koa from 'koa';
 import bodyParser from 'koa-body';
 import koopPostgresProvider from 'koop-provider-pg';
+import registerAuthRoutes from './routes/auth/index.js';
 import registerKartRoutes from './routes/kart/index.js';
 import registerServicesRoutes from './routes/services/index.js';
 import initialize from './startup/index.js';
@@ -54,8 +55,13 @@ await initialize();
 const app = new Koa();
 const router = new Router();
 
+app.proxy = true; // trust X-Forwarded-* headers
+
 app.use(async (ctx, next) => {
-  console.log(`${ctx.method} ${ctx.url}`);
+  let url = ctx.url;
+
+  // redact token query parameter from logs
+  url = url.replace(/([?&])token=[^&]*/gi, '$1token=REDACTED');
   await next();
 });
 
@@ -93,6 +99,10 @@ app.use(
 );
 
 app.use(bodyParser({ includeUnparsed: true, json: true }));
+
+const authRouter = new Router();
+registerAuthRoutes(authRouter, app);
+app.use(authRouter.routes());
 
 // validate GitHub webhook signatures
 app.use(async (ctx, next) => {
@@ -145,10 +155,24 @@ await registerServicesRoutes(servicesRouter);
 app.use(servicesRouter.routes());
 
 router.get('/rest/info', (ctx) => {
-  // rewrite to match koop-postgres-provider's provider name
-  ctx.path = `/${constants.koopKartProviderId}/rest/info`;
-  ctx.respond = false; // let Express handle the raw response
-  koop.server.handle(ctx.req as IncomingMessage, ctx.res as ServerResponse);
+  const host = ctx.request.header.host;
+  const protocol = ctx.request.protocol;
+  const baseUrl = `${protocol}://${host}`;
+
+  const json = {
+    currentVersion: 11.5,
+    fullVersion: '11.5.0',
+    authInfo: {
+      isTokenBasedSecurity: true,
+      shortLivedTokenValidity: 60,
+      tokenServicesUrl: baseUrl + '/tokens',
+    },
+    secureSoapUrl: null,
+    soapUrl: null,
+  };
+
+  ctx.type = 'application/json';
+  ctx.body = JSON.stringify(json);
 });
 
 app.listen(3000);

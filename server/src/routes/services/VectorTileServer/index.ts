@@ -15,7 +15,6 @@ export default (router: Router, tileFolder: string, serviceRootPathname: string)
 
     if (format === 'jsapi') {
       ctx.type = 'text/html';
-      console.log('Current URL:', currentUrl);
       ctx.body = constructArcGisWebMap('Furman University Campus Map (VectorTileServer)', currentUrl);
       return;
     }
@@ -34,6 +33,7 @@ export default (router: Router, tileFolder: string, serviceRootPathname: string)
         {
           data: serverJson,
           center: tilesMetadata.center,
+          user: ctx.state.user,
         },
         {
           serviceRootPathname,

@@ -1,10 +1,10 @@
 import { DOMParser } from '@xmldom/xmldom';
-import { knownServiceTypes } from '../routes/services/discoverServices.js';
-import { constants, unwrapServiceName } from './index.js';
+import { generateServiceDirectoryHeader, unwrapServiceName } from './index.js';
 
 interface DataInput {
   data: Record<string, unknown>;
   center?: { latitude?: number; longitude?: number; zoom?: number };
+  user: Express.User | undefined;
 }
 
 interface RouteInput {
@@ -19,23 +19,73 @@ export function extractServiceNameFromUrl(url: URL): string {
   return serviceName;
 }
 
-/**
- * Converts any JSON data into nested HTML lists dynamically.
- * Produces readable, structured output for arbitrary JSON.
- */
-export function jsonToArcGisHtml(
-  { data, center }: DataInput,
-  { currentUrl: url, serviceRootPathname }: RouteInput
-): string {
+export function initDoc(title = 'REST API') {
   const document = new DOMParser().parseFromString(
     '<!DOCTYPE html><html><head></head><body></body></html>',
     'text/html'
   );
   const head = document.getElementsByTagName('head')[0];
-  if (!head) return '';
+  if (!head) throw new Error('Document head is missing.');
   const body = document.getElementsByTagName('body')[0];
-  if (!body) return '';
+  if (!body) throw new Error('Document body is missing.');
 
+  const space = () => document.createTextNode('\u00A0\u00A0');
+
+  if (head) {
+    const titleElement = document.createElement('title');
+    titleElement.appendChild(document.createTextNode(title));
+    head.appendChild(titleElement);
+
+    const style = document.createElement('style');
+    style.appendChild(document.createTextNode(arcGisCss));
+    head.appendChild(style);
+  }
+
+  const h2 = document.createElement('h2');
+  h2.appendChild(document.createTextNode(title));
+
+  // script to extract token from the URL query param and add
+  // it to every anchor tag href as a query param
+  const scriptElement = document.createElement('script');
+  scriptElement.appendChild(
+    document.createTextNode(`
+      document.addEventListener('DOMContentLoaded', function() {
+        const searchParams = new URLSearchParams(window.location.search);
+        const token = searchParams.get('token');
+        if (token) {
+          const anchorTags = document.getElementsByTagName('a');
+          for (let i = 0; i < anchorTags.length; i++) {
+            const anchor = anchorTags[i];
+            const href = anchor.getAttribute('href');
+            const noTokenAttr = anchor.getAttribute('data-no-token');
+            const noToken = noTokenAttr === '' || noTokenAttr === 'true';
+            if (href && !href.includes('token=') && !noToken) {
+              const separator = href.includes('?') ? '&' : '?';
+              anchor.setAttribute('href', href + separator + 'token=' + encodeURIComponent(token));
+            }
+            if (href && href.includes('token=') && noToken) {
+              const url = new URL(href, window.location.origin);
+              url.searchParams.delete('token');
+              anchor.setAttribute('href', url.pathname + url.search + url.hash);
+            }
+          }
+        }
+      });
+    `)
+  );
+  body.appendChild(scriptElement);
+
+  return { document, head, body, space, titleElement: h2 };
+}
+
+/**
+ * Converts any JSON data into nested HTML lists dynamically.
+ * Produces readable, structured output for arbitrary JSON.
+ */
+export function jsonToArcGisHtml(
+  { data, center, user }: DataInput,
+  { currentUrl: url, serviceRootPathname }: RouteInput
+): string {
   // force https
   url.protocol = 'https:';
 
@@ -44,109 +94,22 @@ export function jsonToArcGisHtml(
   const type = pathParts[pathParts.length - 1] as 'VectorTileServer' | 'FU.RoutingServer' | 'FeatureServer';
   const serviceName = extractServiceNameFromUrl(url);
 
-  const space = () => document.createTextNode('\u00A0\u00A0');
-
-  // write head
-  const title = document.createElement('title');
-  title.appendChild(document.createTextNode(serviceName || 'Service'));
-  head.appendChild(title);
-
-  const style = document.createElement('style');
-  style.appendChild(document.createTextNode(arcGisCss));
-  head.appendChild(style);
+  const { document, body, space, titleElement } = initDoc(serviceName || 'Service');
 
   // write header
-  const headerTable = document.createElement('table');
-  headerTable.setAttribute('class', 'userTable');
-  headerTable.setAttribute('width', '100%');
-  const headerRow = document.createElement('tr');
-  const titleCell = document.createElement('td');
-  titleCell.setAttribute('class', 'titlecell');
-  titleCell.appendChild(document.createTextNode(constants.servicesDirectoryTitle));
-  headerRow.appendChild(titleCell);
-  headerTable.appendChild(headerRow);
-  body.appendChild(headerTable);
-
-  // write base breadcrumbs
-  const navTable = document.createElement('table');
-  navTable.setAttribute('class', 'navTable');
-  navTable.setAttribute('width', '100%');
-  const breadcrumbsRow = document.createElement('tr');
-  breadcrumbsRow.setAttribute('valign', 'top');
-  const breadcrumbsCell = document.createElement('td');
-  breadcrumbsCell.setAttribute('class', 'breadcrumbs');
-  const homeLink = document.createElement('a');
-  homeLink.setAttribute('href', serviceRootPathname);
-  homeLink.appendChild(document.createTextNode('Home'));
-  breadcrumbsCell.appendChild(homeLink);
-  breadcrumbsCell.appendChild(document.createTextNode(' > '));
-  const servicesLink = document.createElement('a');
-  servicesLink.setAttribute('href', serviceRootPathname);
-  servicesLink.appendChild(document.createTextNode('Services'));
-  breadcrumbsCell.appendChild(servicesLink);
-  breadcrumbsRow.appendChild(breadcrumbsCell);
-  navTable.appendChild(breadcrumbsRow);
-  body.appendChild(navTable);
-
-  // write breadcrumbs for current path
-  if (url.pathname !== serviceRootPathname) {
-    const pathParts = url.pathname
-      .replace(serviceRootPathname, '')
-      .split('/')
-      .filter((part) => part.length > 0)
-      .map((part) => decodeURIComponent(part));
-
-    let cumulativePath = serviceRootPathname;
-    const partLinks = pathParts.reduce((acc, part) => {
-      cumulativePath += `/${part}`;
-
-      if ((knownServiceTypes as readonly string[]).includes(part)) {
-        const previousPartElem = acc.pop();
-        const previousPartElemTextNode = previousPartElem?.firstChild;
-        if (previousPartElemTextNode && previousPartElemTextNode.nodeType === previousPartElem.TEXT_NODE) {
-          const modifiedPartTextNode = document.createTextNode(previousPartElem.textContent + ` (${part})`);
-          previousPartElem.replaceChild(modifiedPartTextNode, previousPartElemTextNode);
-          previousPartElem.setAttribute('href', encodeURI(cumulativePath));
-          return [...acc, previousPartElem];
-        }
-      }
-
-      const partLink = document.createElement('a');
-      partLink.setAttribute('href', encodeURI(cumulativePath));
-      partLink.appendChild(document.createTextNode(part));
-      return [...acc, partLink];
-    }, [] as HTMLAnchorElement[]);
-
-    partLinks.forEach((partLink, index) => {
-      const separator = document.createTextNode(' > ');
-      breadcrumbsCell.appendChild(separator);
-      breadcrumbsCell.appendChild(partLink);
-    });
-  }
-
-  // formats
-  const formatsTable = document.createElement('table');
-  const formatsRow = document.createElement('tr');
-  const formatsCell = document.createElement('td');
-  formatsCell.setAttribute('class', 'apiref');
-  const jsonLink = document.createElement('a');
-  jsonLink.setAttribute('href', `?f=json`);
-  jsonLink.appendChild(document.createTextNode('JSON'));
-  formatsCell.appendChild(jsonLink);
-  formatsCell.appendChild(document.createTextNode(' | '));
-  const pjsonLink = document.createElement('a');
-  pjsonLink.setAttribute('href', `?f=pjson`);
-  pjsonLink.appendChild(document.createTextNode('PJSON'));
-  formatsCell.appendChild(pjsonLink);
-  formatsRow.appendChild(formatsCell);
-  formatsTable.appendChild(formatsRow);
-  body.appendChild(formatsTable);
-
-  // header
-  const h2 = document.createElement('h2');
-  const titleText = serviceName || 'Service';
-  h2.appendChild(document.createTextNode(titleText + ` (${type})`));
-  body.appendChild(h2);
+  const headerTables = generateServiceDirectoryHeader(
+    {
+      document,
+      user,
+      formats: [
+        { format: 'json', href: `?f=json` },
+        { format: 'pjson', href: `?f=pjson` },
+      ],
+    },
+    { serviceRootPathname, currentPathname: url.pathname }
+  );
+  headerTables.forEach((table) => body.appendChild(table));
+  body.appendChild(titleElement);
 
   // properties div
   const propertiesDiv = document.createElement('div');

@@ -61,6 +61,7 @@ export default async (router: Router) => {
       currentVersion: 11.5,
       folders,
       services: servicesInDir,
+      user: ctx.state.user,
     };
 
     if (format === 'html') {

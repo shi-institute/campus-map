@@ -8,6 +8,7 @@ import {
   jsonToArcGisHtml,
   unwrapServiceName,
 } from '../../../utils/index.js';
+import { requireToken } from '../../auth/index.js';
 
 export default (router: Router, serviceFolder: string, serviceRootPathname: string) => {
   const servicePath = serviceFolder.replace(constants.fileBasedServicesDataFolder, '');
@@ -25,6 +26,9 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
   const koopPath = `/${
     isKartSource ? constants.koopKartProviderId : constants.koopRoutingProviderId
   }/rest/services/${serviceSubpath}/FeatureServer`;
+
+  // require authentication for FeatureServer routes
+  router.use(requireToken);
 
   // serve FeatureServer from koop
   router.get('/', async (ctx) => {
@@ -63,6 +67,7 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
       ctx.body = jsonToArcGisHtml(
         {
           data: serverJson,
+          user: ctx.state.user,
         },
         {
           serviceRootPathname,
