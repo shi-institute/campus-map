@@ -8,7 +8,7 @@ import type { Context } from 'koa';
 import passport from 'koa-passport';
 import { createSession } from 'koa-session';
 import ActiveDirectoryStrategy from 'passport-activedirectory';
-import { generateServiceDirectoryHeader, initDoc } from '../../utils/index.js';
+import { generateServiceDirectoryHeader, inferServiceResponseFormat, initDoc } from '../../utils/index.js';
 
 // load environment variables from .env file
 dotenv.config({ override: true, quiet: true });
@@ -249,17 +249,15 @@ export default async (router: Router, app: Koa) => {
       return;
     }
 
-    const format: unknown | 'html' | 'json' = parameters.f;
-    if (format !== 'html' && format !== 'json') {
-      ctx.status = 400;
-      ctx.body = 'Invalid format specified';
-      return;
-    }
+    const format = inferServiceResponseFormat(ctx);
 
     function respondWithError(message: string) {
       if (format === 'json') {
         ctx.type = 'application/json';
         ctx.body = JSON.stringify({ error: message });
+      } else if (format === 'pjson') {
+        ctx.type = 'text/plain';
+        ctx.body = JSON.stringify({ error: message }, null, 2);
       } else {
         ctx.status = 400;
         ctx.body = `<html><body><h1>Error</h1><p>${message}</p></body></html>`;
@@ -354,9 +352,17 @@ export default async (router: Router, app: Koa) => {
       }
     );
 
+    const jsonData = { token: token, expires: Date.now() + expiration * 60 * 1000 };
+
     if (format === 'json') {
       ctx.type = 'application/json';
-      ctx.body = JSON.stringify({ token: token, expires: Date.now() + expiration * 60 * 1000 });
+      ctx.body = JSON.stringify(jsonData);
+      return;
+    }
+
+    if (format === 'pjson') {
+      ctx.type = 'text/plain';
+      ctx.body = JSON.stringify(jsonData, null, 2);
       return;
     }
 
@@ -591,11 +597,12 @@ export async function requireToken(ctx: Context, next: Koa.Next) {
     const code = 499;
     const message = 'Token Required';
 
-    const acceptsJson = ctx.request.accepts('application/json') && !ctx.request.accepts('text/html');
-    if (acceptsJson || ctx.request.query.f === 'json') {
+    const format = inferServiceResponseFormat(ctx);
+
+    if (format === 'json') {
       ctx.type = 'application/json';
       ctx.body = { error: { code, message, details: [] } };
-    } else if (ctx.request.query.f === 'pjson') {
+    } else if (format === 'pjson') {
       ctx.type = 'text/plain';
       ctx.body = JSON.stringify({ error: { code, message, details: [] } }, null, 2);
     } else {
@@ -705,7 +712,6 @@ async function getUserByPrincipalName(
         delete user.displayName;
       }
       return resolve({
-        ...user,
         distinguishedName: user.dn,
         employeeId: user.employeeID,
         userPrincipalName: user.userPrincipalName,
