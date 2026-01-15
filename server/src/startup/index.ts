@@ -1,11 +1,24 @@
+import EventEmitter from 'node:events';
 import { types } from 'pg';
+import { clearStaleServices } from './clearStaleServices.js';
 import { initializeKart } from './initializeKart.js';
+
+interface EventMap {
+  vectortilesdata: [];
+  kartdata: [];
+  routingdata: [];
+  servicesdirectoryupdated: [reason: 'vectortiles' | 'routing' | 'kart'];
+}
+
+export const initEvents = new EventEmitter<EventMap>();
 
 /**
  * Initializes required external services.
  */
 export default async () => {
+  await clearStaleServices();
   await initializeKart();
+  return initEvents;
 };
 
 // ensure BIGINTs are returned as BigInts, not strings

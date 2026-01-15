@@ -3,12 +3,8 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  constants,
-  exec,
-  generateVectorTilesForDbGeometryTables,
-  getKartDatabaseConnectionString,
-} from '../utils/index.js';
+import { constants, exec, generateServiceFiles, getKartDatabaseConnectionString } from '../utils/index.js';
+import { initEvents } from './index.js';
 
 export const kartRepoPath = path.join(os.homedir(), '.fu-campus-map', 'data-repository');
 
@@ -42,9 +38,10 @@ export async function initializeKart() {
     await exec(`cd "${kartRepoPath}" && kart reset --discard-changes origin/main`, true, true, '  ');
     console.log('  Pulled latest changes.');
   }
+  initEvents.emit('kartdata');
 
-  // generate vector tiles in the background
-  generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder, {
+  // generate service directory static files in the background
+  generateServiceFiles(constants.campusMapVectorTilesOutputFolder, {
     waysLayers: config.get<string[]>('campusmap.waysLayers'),
   });
 }

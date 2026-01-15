@@ -5,8 +5,9 @@ import type { Context } from 'koa';
  * query parameters and Accept headers.
  */
 export function inferServiceResponseFormat(ctx: Context) {
-  // explicily reqwuested format
-  const format = ctx.request.query.f;
+  // explicily requested format
+  const format =
+    ctx.request.query.f || (typeof ctx.request.body === 'object' ? ctx.request.body.f : undefined);
 
   // header-based content negotiation
   const acceptsHtml = ctx.request.accepts('text/html', 'application/json', 'text/plain') === 'text/html';

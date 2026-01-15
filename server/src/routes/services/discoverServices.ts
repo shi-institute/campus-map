@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { readdir, readFile, stat } from 'fs/promises';
 import path from 'path';
 
@@ -8,6 +9,10 @@ export const knownServiceTypes = ['VectorTileServer', 'FU.RoutingServer', 'Featu
  * that does not contain a known service type's `.json` file.
  */
 async function getChildFolders(searchDirectory: string) {
+  if (existsSync(searchDirectory) === false) {
+    return [];
+  }
+
   const directories = await readdir(searchDirectory).then(async (items) => {
     return await Array.fromAsync(items, async (item) => {
       const itemPath = path.join(searchDirectory, item);
@@ -58,6 +63,10 @@ interface VectorTileServiceInfo extends ServiceInfo {
  * Gets tile services names from a services directory.
  */
 async function getVectorTileServices(searchDirectory: string, parentPathname: string) {
+  if (existsSync(searchDirectory) === false) {
+    return [];
+  }
+
   // read the tile services directory
   const directories = await readdir(searchDirectory);
 
@@ -82,6 +91,10 @@ async function getVectorTileServices(searchDirectory: string, parentPathname: st
 }
 
 async function getFuRoutingServices(searchDirectory: string, parentPathname: string) {
+  if (existsSync(searchDirectory) === false) {
+    return [];
+  }
+
   // read the services directory
   const directories = await readdir(searchDirectory);
 
@@ -106,6 +119,10 @@ async function getFuRoutingServices(searchDirectory: string, parentPathname: str
 }
 
 async function getFeatureServices(searchDirectory: string, parentPathname: string) {
+  if (existsSync(searchDirectory) === false) {
+    return [];
+  }
+
   // read the services directory
   const directories = await readdir(searchDirectory);
 

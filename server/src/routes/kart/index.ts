@@ -1,6 +1,6 @@
 import Router from '@koa/router';
 import { z } from 'zod';
-import { constants, generateVectorTilesForDbGeometryTables } from '../../utils/index.js';
+import { constants, generateServiceFiles } from '../../utils/index.js';
 import { pullLatestChangesForKart } from './pullLatestChangesForKart.js';
 
 export default (router: Router) => {
@@ -30,15 +30,15 @@ export default (router: Router) => {
 
     // update the vector tiles
     try {
-      await generateVectorTilesForDbGeometryTables(constants.campusMapVectorTilesOutputFolder);
+      await generateServiceFiles(constants.campusMapVectorTilesOutputFolder);
     } catch (error) {
       ctx.status = 500;
       if (error instanceof Error) {
-        ctx.body = `Failed to generate vector tiles: ${error.message}`;
+        ctx.body = `Failed to update service files: ${error.message}`;
       } else {
-        ctx.body = 'Failed to generate vector tiles: Unknown error';
+        ctx.body = 'Failed to update service filess: Unknown error';
       }
-      console.error('Error generating vector tiles for Kart:', error);
+      console.error('Error updating service files:', error);
       return;
     }
 
