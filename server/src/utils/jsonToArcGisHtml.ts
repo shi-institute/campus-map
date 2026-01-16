@@ -187,15 +187,15 @@ export function jsonToArcGisHtml(
     viewInMaputnikLink.appendChild(document.createTextNode('Maputnik'));
     linkElements.push(viewInMaputnikLink);
   }
-  if (type === 'VectorTileServer' && serviceName === 'FurmanCampusMap' && process.env.CAMPUS_MAP_WEB_URL) {
+  if (type === 'VectorTileServer' && serviceName === 'FurmanCampusMap') {
     const viewInCampusMapLink = document.createElement('a');
-    viewInCampusMapLink.setAttribute('href', process.env.CAMPUS_MAP_WEB_URL);
+    viewInCampusMapLink.setAttribute('href', '/');
     viewInCampusMapLink.appendChild(document.createTextNode('Furman Campus Map'));
     linkElements.push(viewInCampusMapLink);
   }
-  if (type === 'FU.RoutingServer' && serviceName === 'FurmanCampusGraph' && process.env.CAMPUS_MAP_WEB_URL) {
+  if (type === 'FU.RoutingServer' && serviceName === 'FurmanCampusGraph') {
     const viewInCampusMapLink = document.createElement('a');
-    viewInCampusMapLink.setAttribute('href', process.env.CAMPUS_MAP_WEB_URL);
+    viewInCampusMapLink.setAttribute('href', '/');
     viewInCampusMapLink.appendChild(document.createTextNode('Furman Campus Map'));
     linkElements.push(viewInCampusMapLink);
   }

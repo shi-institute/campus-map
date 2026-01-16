@@ -20,6 +20,7 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
       ctx.body = jsonToArcGisHtml(
         {
           data: serverJson,
+          user: ctx.state.user,
         },
         {
           serviceRootPathname,

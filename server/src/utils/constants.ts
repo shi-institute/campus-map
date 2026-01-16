@@ -1,7 +1,7 @@
 import path from 'node:path';
 
-const fileBasedServicesDataFolder = '/app/server/data/services/';
-const databaseGeometryExportFolder = '/app/server/fgb-exports/';
+const fileBasedServicesDataFolder = '/tmp/app/server/data/services/';
+const databaseGeometryExportFolder = '/tmp/app/server/fgb-exports/';
 const servicesDirectoryTitle = 'Services Directory';
 const campusMapVectorTilesOutputFolder = path.join(fileBasedServicesDataFolder, '/FurmanCampusMap/');
 const database = {

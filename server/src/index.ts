@@ -3,11 +3,16 @@ import Router from '@koa/router';
 import Koop from '@koopjs/koop-core';
 import OutputGeoservices from '@koopjs/output-geoservices';
 import * as crypto from 'crypto';
-import dotenv from 'dotenv';
-import { IncomingMessage, ServerResponse } from 'http';
+import { readFile } from 'fs/promises';
 import Koa from 'koa';
 import bodyParser from 'koa-body';
 import koopPostgresProvider from 'koop-provider-pg';
+import path from 'node:path';
+import {
+  build as buildViteApp,
+  createServer as createViteServer,
+} from '../../client/node_modules/vite/dist/node/index.js';
+import frontend from './client.js';
 import registerAuthRoutes from './routes/auth/index.js';
 import registerKartRoutes from './routes/kart/index.js';
 import registerServicesRoutes from './routes/services/index.js';
@@ -45,8 +50,6 @@ koop.register(koopPostgresProvider, {
   pgLimit: 1000000,
 });
 
-// load environment variables from .env file
-dotenv.config({ override: true, quiet: true });
 if (!process.env.DATA_REPOSITORY) {
   throw new Error('DATA_REPOSITORY environment variable is not set.');
 }
@@ -138,7 +141,7 @@ app.use(async (ctx, next) => {
   await next();
 });
 
-router.get('/', async (ctx) => {
+router.get('/status', async (ctx) => {
   ctx.body = 'Furman University Campus Map Server is running.';
   ctx.redirect('/rest/services');
 });
@@ -174,5 +177,72 @@ router.get('/rest/info', (ctx) => {
   ctx.type = 'application/json';
   ctx.body = JSON.stringify(json);
 });
+
+const clientViteConfig = {
+  root: '/app/client',
+  configFile: '/app/client/vite.config.ts',
+  server: { middlewareMode: true },
+  appType: 'custom', // disable Vite's default HTML serving logic
+  base: '/',
+  envDir: '/app/client',
+} satisfies Parameters<typeof createViteServer>[0];
+
+if (process.env.NODE_ENV !== 'production') {
+  // start the dev server for client and proxy requests to it in development
+  // if (process.env.NODE_ENV === 'development') {
+  const clientDevServer = await createViteServer(clientViteConfig);
+
+  // attach vite's middleware
+  app.use(async (ctx, next) => {
+    await new Promise<void>((resolve, reject) => {
+      clientDevServer.middlewares(ctx.req, ctx.res, (err: unknown) => (err ? reject(err) : resolve()));
+    });
+    await next();
+  });
+
+  // serve client/frontend if no other route matched
+  app.use(async (ctx) => {
+    const url = ctx.path;
+    try {
+      let template = await clientDevServer.transformIndexHtml(
+        url,
+        await readFile('../client/index.html', 'utf8')
+      );
+      ctx.type = 'text/html';
+      ctx.body = template;
+    } catch (error) {
+      ctx.status = 500;
+      if (error instanceof Error) {
+        clientDevServer.ssrFixStacktrace(error);
+        ctx.body = error.message;
+      } else {
+        ctx.body = error;
+      }
+      console.error(error);
+    }
+  });
+} else {
+  await buildViteApp(clientViteConfig);
+
+  // serve any file from the client dist folder
+  app.use(async (ctx, next) => {
+    const filePath = path.join('/app/client/dist', decodeURIComponent(ctx.path));
+    try {
+      ctx.type = path.extname(filePath);
+      ctx.body = await readFile(filePath);
+    } catch (err) {
+      await next();
+    }
+  });
+
+  // serve client/frontend if no other route matched
+  app.use(async (ctx) => {
+    const indexPath = path.join('/app/client/dist', 'index.html');
+    ctx.type = 'text/html';
+    ctx.body = await readFile(indexPath, 'utf8');
+  });
+}
+
+app.use(frontend);
 
 app.listen(3000);

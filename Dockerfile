@@ -25,9 +25,10 @@ RUN curl -L -o kart-0.17.0-1.x86_64.deb https://github.com/koordinates/kart/rele
     apt-get clean
 
 # download and install node.js version 24
-ENV PATH="/root/.local/share/fnm:$PATH"
-RUN curl -fsSL https://fnm.vercel.app/install | bash
-RUN bash -c 'eval "$(fnm env)" && fnm install 24 && fnm default 24 && fnm use 24'
+ENV FNM_DIR="/usr/local/share/fnm"
+RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir ${FNM_DIR} --skip-shell
+RUN ${FNM_DIR}/fnm install 24 && ${FNM_DIR}/fnm default 24
+RUN chown -R root:root /usr/local/share/fnm && chmod -R u=rwx,go=rx /usr/local/share/fnm
 
 # build and install tippecanoe
 RUN git clone --depth=1 https://github.com/felt/tippecanoe.git && \
@@ -38,15 +39,25 @@ RUN git clone --depth=1 https://github.com/felt/tippecanoe.git && \
     rm -rf tippecanoe
 
 # install miniforge (conda)
+ENV CONDA_DIR=/opt/miniforge3
 RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-RUN bash Miniforge3-$(uname)-$(uname -m).sh -b
+RUN bash Miniforge3-$(uname)-$(uname -m).sh -b -p ${CONDA_DIR}
 RUN rm Miniforge3-$(uname)-$(uname -m).sh
-ENV PATH="/root/miniforge3/bin:${PATH}"
+
+# create shared global condarc
+RUN mkdir -p /etc/conda && \
+    cat > /etc/conda/.condarc <<'EOF'
+envs_dirs:
+  - ~/.conda/envs
+  - /opt/miniforge3/envs
+pkgs_dirs:
+  - ~/.conda/pkgs
+  - /opt/miniforge3/pkgs
+EOF
 
 # install conda environment
-COPY ./src/utils/convertWaysToEdges/environment.yaml ./convert-ways-to-edges.environment.yaml
-RUN /root/miniforge3/bin/conda env create -f ./convert-ways-to-edges.environment.yaml -n convert-ways-to-edges
-# RUN echo "source /root/miniforge3/bin/activate convert-ways-to-edges" >> ~/.bashrc
+COPY ./server/src/utils/convertWaysToEdges/environment.yaml ./convert-ways-to-edges.environment.yaml
+RUN $CONDA_DIR/bin/conda env create -f ./convert-ways-to-edges.environment.yaml -p $CONDA_DIR/envs/convert-ways-to-edges
 
 # create the postgres data directory
 RUN mkdir -p $PGDATA && chown postgres:postgres $PGDATA
@@ -62,14 +73,17 @@ RUN sudo -u postgres /usr/lib/postgresql/18/bin/pg_ctl -D $PGDATA -o "-c listen_
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -d ${ROUTING_DB} -c "CREATE EXTENSION pgRouting;" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/pg_ctl -D $PGDATA -m fast stop
 
-# copy nodejs application files
-WORKDIR /app/server
-COPY ./package*.json ./
-COPY ./patches/ ./patches/
-RUN bash -c 'eval "$(fnm env)" && npm install'
+# copy over client application files
+WORKDIR /app/client
+COPY ./client/ ./
+RUN chown -R 1000:1000 /app/client && chmod -R a+rwX /app/client
+RUN bash -c 'eval "$(${FNM_DIR}/fnm env)" && npm install'
 
-# copy over source files
-COPY ./src/ ./src/
+# copy nodejs server application files
+WORKDIR /app/server
+COPY ./server/ ./
+RUN chown -R 1000:1000 /app/server && chmod -R a+rwX /app/server
+RUN bash -c 'eval "$(${FNM_DIR}/fnm env)" && npm install'
 
 # expose port 3000
 EXPOSE 3000
@@ -80,5 +94,28 @@ RUN sed -ri "s/^#?listen_addresses\s*=.*/listen_addresses = '*'/" $PGDATA/postgr
 RUN echo "host all all 0.0.0.0/0 trust" >> $PGDATA/pg_hba.conf
 RUN echo "host all all 0.0.0.0/0 md5" >> $PGDATA/pg_hba.conf
 
-# start the server
-CMD ["sh", "-c", "sudo -u postgres /usr/lib/postgresql/18/bin/postgres -D \"$PGDATA\" > /dev/null 2>&1 & while ! sudo -u postgres /usr/lib/postgresql/18/bin/pg_isready -q; do sleep 0.2; done; exec /bin/bash"]
+# never require a password for sudo
+RUN echo "ALL ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/nopasswd && \
+    chmod 440 /etc/sudoers.d/nopasswd
+
+# set up environment for login and bash shells
+RUN cat <<'EOF' > /etc/profile.d/env-common.sh
+# add fnm and conda to path and initialize them
+export PATH=$PATH:${FNM_DIR}:${CONDA_DIR}/bin
+eval "$(/usr/local/share/fnm/fnm env)"
+. ${CONDA_DIR}/etc/profile.d/conda.sh
+
+# configure conda to use shared condarc
+export CONDARC=/etc/conda/.condarc
+
+# unset environment variables that are not UTF-8 (crashes kart otherwise)
+/usr/local/bin/unset-nonutf8.sh 2>/dev/null || true
+EOF
+RUN cat /etc/profile.d/env-common.sh >> /etc/bash.bashrc
+
+# start the server (tiny forwards signals to postgres and bash)
+COPY ./scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY ./scripts/unset-nonutf8.sh /usr/local/bin/unset-nonutf8.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/unset-nonutf8.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

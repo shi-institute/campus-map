@@ -9,5 +9,17 @@
   },
   "[python]": {
     "editor.defaultFormatter": "ms-python.autopep8"
-  }
+  },
+  "terminal.integrated.profiles.linux": {
+    "campus-map-server": {
+      "path": "bash",
+      "args": [
+        "-c",
+        "./scripts/dev-shell.sh"
+      ],
+      "icon": "server",
+      "color": "terminal.ansiCyan"
+    }
+  },
+  "terminal.integrated.defaultProfile.linux": "campus-map-server"
 }

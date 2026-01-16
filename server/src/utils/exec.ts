@@ -2,7 +2,10 @@ import { exec as execSync, spawn } from 'node:child_process';
 
 export function exec(command: string, logStdout = false, logStderr = false, indent = '') {
   return new Promise<void | string>((resolve, reject) => {
-    const child = spawn(command, { shell: true });
+    const child = spawn(command, {
+      shell: '/bin/bash',
+      env: Object.fromEntries(Object.entries(process.env).filter(([key, value]) => !!value)),
+    });
 
     let stdOutCopy = '';
 

@@ -1,6 +1,5 @@
 import Router from '@koa/router';
 import ActiveDirectory from 'activedirectory2';
-import dotenv from 'dotenv';
 import { isIP } from 'is-ip';
 import jwt from 'jsonwebtoken';
 import type Koa from 'koa';
@@ -9,9 +8,6 @@ import passport from 'koa-passport';
 import { createSession } from 'koa-session';
 import ActiveDirectoryStrategy from 'passport-activedirectory';
 import { generateServiceDirectoryHeader, inferServiceResponseFormat, initDoc } from '../../utils/index.js';
-
-// load environment variables from .env file
-dotenv.config({ override: true, quiet: true });
 
 if (!process.env.DOMAIN_USERNAME || !process.env.DOMAIN_PASSWORD) {
   throw new Error(
@@ -25,10 +21,17 @@ const activeDirectory = new ActiveDirectory({
   password: process.env.DOMAIN_PASSWORD,
 });
 
-const jwtSecret = process.env.JWT_SECRET || 'default_jwt_secret';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable must be set for token generation and verification.');
+}
+const jwtSecret = process.env.JWT_SECRET;
+if (!process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET environment variable must be set for session management.');
+}
+const sessionSecret = process.env.SESSION_SECRET;
 
 export default async (router: Router, app: Koa) => {
-  app.keys = [process.env.SESSION_SECRET || 'default_session_secret'];
+  app.keys = [sessionSecret];
   app.use(createSession(app));
 
   app.use(passport.initialize());

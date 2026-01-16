@@ -4,8 +4,12 @@
   "main": "index.ts",
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development tsx watch src/index.ts",
-    "start": "NODE_ENV=production node --experimental-strip-types src/index.ts",
+    "dev": "NODE_ENV=development tsx watch --ignore ../client src/index.ts",
+    "start": "npm run build && NODE_ENV=production node dist/index.js",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "NODE_ENV=production tsc --noEmitOnError false --skipLibCheck true --outDir dist && npm run migratepy",
+    "build:frontend": "node -e \"require('./dist/client').buildFrontend()\"",
+    "migratepy": "find src -type f -name \"*.py\" -exec sh -c 'dest=\"dist/${1#src/}\"; mkdir -p \"$(dirname \"$dest\")\"; cp \"$1\" \"$dest\"' _ {} \\;",
     "postinstall": "patch-package"
   },
   "author": "Jack Buehner",
@@ -16,7 +20,6 @@
     "@koa/router": "^14.0.0",
     "@koopjs/koop-core": "^10.4.17",
     "@xmldom/xmldom": "^0.8.11",
-    "dotenv": "^17.2.3",
     "fast-extract": "^1.7.5",
     "is-ip": "^5.0.1",
     "jsonwebtoken": "^9.0.3",
