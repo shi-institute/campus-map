@@ -2,9 +2,9 @@
   import { LeftPane } from '$lib/components';
   import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
   import { goBack, goto, route, url } from '$lib/navigation';
+  import { rootStyleToPrintStyle } from '$lib/styles/printMapStyles';
   import {
     copyToClipboard,
-    debounce,
     getLabelFromProperties,
     implementPitchAndRollOnMiddleClickAndDrag,
     implementZoomOnRightClickAndDrag,
@@ -171,146 +171,13 @@
       });
   });
 
-  /**
-   * A utility function for customizing each layer in a MapLibre style. It takes a callback function that
-   * is caled for each style. Return the unmodified or modified layer specification, or return null to
-   * remove the layer.
-   */
-  function customizeStyle(
-    styleData: maplibregl.StyleSpecification | undefined,
-    transformLayer: (
-      layer: maplibregl.LayerSpecification
-    ) => maplibregl.LayerSpecification | maplibregl.LayerSpecification[] | null
-  ) {
-    if (!styleData) {
-      return styleData;
-    }
-
-    // deep copy the style data
-    const customizedStyle = JSON.parse(JSON.stringify(styleData)) as maplibregl.StyleSpecification;
-
-    // transform each layer using the callback function
-    customizedStyle.layers = customizedStyle.layers
-      // require consumers to make a copy first
-      .map((layer) => Object.freeze(layer))
-      .flatMap(transformLayer)
-      .filter((layer) => !!layer);
-
-    return customizedStyle;
-  }
-
-  /**
-   * Maplibre line dash arrays are scaled in between integer zoom levels, which can make
-   * dashes and their gaps appear larger than desired at non-integer zoom levels. This function
-   * creates a line dash array expression that adjusts the dash and gap lengths based on the
-   * current zoom level, making them appear more consistent across zoom levels.
-   */
-  function createZoomResilientLineDashArray(
-    dashLength: number,
-    gapLength: number,
-    { startZoom = 0, endZoom = 22, step = 0.1 } = {}
-  ): maplibregl.DataDrivenPropertyValueSpecification<number[]> {
-    const expr: any[] = ['step', ['zoom'], ['literal', [dashLength, gapLength]]];
-    const steps = Math.floor((endZoom - startZoom) / step);
-
-    for (let i = 0; i <= steps; i++) {
-      const z = +(startZoom + i * step);
-      const scale = (z % 1) + 1;
-      const scaled = [+(dashLength / scale).toFixed(5), +(gapLength / scale).toFixed(5)];
-      expr.push(z - 0.0000001, ['literal', scaled]);
-    }
-
-    return expr;
-  }
-
   let printMapStyle = $state<maplibregl.StyleSpecification>();
   $effect(() => {
-    printMapStyle = customizeStyle(rootStyleData, (_layer) => {
-      const layer = JSON.parse(JSON.stringify(_layer)) as typeof _layer;
-
-      if (layer.id === 'trails_provisional') {
-        layer.paint = {
-          'line-color': '#000',
-          'line-width': 2.5,
-          'line-dasharray': createZoomResilientLineDashArray(0.5, 3),
-        };
-        layer.layout = { 'line-cap': 'round', 'line-join': 'bevel' };
-      }
-
-      if (layer.id === '4wd_road_provisional') {
-        const linePaint: maplibregl.LayerSpecification['paint'] = {
-          'line-color': '#895a44',
-          'line-width': 1.75,
-          'line-dasharray': createZoomResilientLineDashArray(5, 2),
-        };
-
-        const lineLayout: maplibregl.LayerSpecification['layout'] = {
-          'line-cap': 'butt',
-          'line-join': 'bevel',
-        };
-
-        return [
-          {
-            ...layer,
-            id: '4wd_road_provisional',
-            paint: { ...linePaint, 'line-offset': 2 },
-            layout: lineLayout,
-          },
-          {
-            ...layer,
-            id: '4wd_road_provisional-right',
-            paint: { ...linePaint, 'line-offset': -2 },
-            layout: lineLayout,
-          },
-        ] as maplibregl.LayerSpecification[];
-      }
-
-      if (layer.id === 'abandoned_road_provisional') {
-        const linePaint: maplibregl.LayerSpecification['paint'] = {
-          'line-color': '#992E1E',
-          'line-width': 1.75,
-          'line-opacity': 0.5,
-          'line-dasharray': createZoomResilientLineDashArray(5, 6),
-        };
-
-        const lineLayout: maplibregl.LayerSpecification['layout'] = {
-          'line-cap': 'butt',
-          'line-join': 'bevel',
-        };
-
-        return [
-          {
-            ...layer,
-            id: 'abandoned_road_provisional',
-            paint: { ...linePaint, 'line-offset': 2 },
-            layout: lineLayout,
-          },
-          {
-            ...layer,
-            id: 'abandoned_road_provisional-right',
-            paint: { ...linePaint, 'line-offset': -2 },
-            layout: lineLayout,
-          },
-        ] as maplibregl.LayerSpecification[];
-      }
-
-      if (layer.id === 'perennial_lake_provisional') {
-        layer.paint = { 'line-color': '#57778b' };
-      }
-
-      if (layer.id === 'perennial_stream_provisional') {
-        layer.paint = { 'line-color': '#57778b' };
-      }
-
-      if (layer.id === 'sidewalks_provisional') {
-        layer.paint = { 'line-color': '#76787b', 'line-width': 2 };
-      }
-
-      return layer;
-    });
+    printMapStyle = rootStyleToPrintStyle(rootStyleData);
   });
 
   const selectedStyleName = $state<string>($url.searchParams.get('style') || 'print');
+  const selectedStyleData = $derived(getStyle($url.searchParams.get('style')));
 
   function getStyle(name: string | null) {
     if (name === 'print' && printMapStyle) {
@@ -322,51 +189,6 @@
     }
     return { ...rootStyleData, name: 'default' };
   }
-
-  const selectedStyleData = $derived(getStyle($url.searchParams.get('style')));
-
-  function updateMapStyle(map: maplibregl.Map) {
-    if (selectedStyleData) {
-      map.setStyle(selectedStyleData, {
-        diff: true,
-        transformStyle: (previous, next) => {
-          const newSources = Object.keys(next.sources);
-
-          if (previous && next) {
-            // preserve previous sources unless they have changed
-            for (const sourceId in previous.sources) {
-              if (!newSources.includes(sourceId)) {
-                next.sources[sourceId] = previous.sources[sourceId];
-              }
-            }
-
-            // preserve layers that belong to unmodified sources
-            for (const layer of previous.layers) {
-              if ('source' in layer && layer.source && !newSources.includes(layer.source)) {
-                // only add the layer if it doesn't already exist in the next style
-                if (!next.layers.find((l) => l.id === layer.id)) {
-                  next.layers.push(layer);
-                }
-              }
-            }
-          }
-
-          return next;
-        },
-      });
-    }
-  }
-
-  const debouncedUpdateMapStyle = debounce(updateMapStyle, 10);
-
-  // $effect(() => {
-  //   if (selectedStyleData && mapLoadedOnce) {
-  //     console.log('updating map style due to selectedStyleData change');
-  //     map?.once('idle', (event) => {
-  //       debouncedUpdateMapStyle(event.target);
-  //     });
-  //   }
-  // });
 </script>
 
 <div
@@ -591,5 +413,18 @@
   :global(.maplibregl-ctrl-bottom-left .pane-control > aside) {
     position: absolute;
     bottom: 0;
+  }
+
+  @media print {
+    :global(.maplibregl-control-container) {
+      display: none;
+    }
+
+    .map-frame :global(.map-container) {
+      position: absolute;
+      inset: 0;
+      max-width: 8.5in;
+      max-height: 11in;
+    }
   }
 </style>
