@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => {
       alias: {
         '$lib/navigation': path.resolve(__dirname, './src/lib/navigation/index.ts'),
         '$lib/navigation/*': path.resolve(__dirname, './src/lib/navigation/*'),
+        '$lib/utils/features': path.resolve(__dirname, './src/lib/utils/features/index.ts'),
+        '$lib/utils/features/*': path.resolve(__dirname, './src/lib/utils/features/*'),
+        '$lib/utils/auth': path.resolve(__dirname, './src/lib/utils/auth/index.ts'),
+        '$lib/utils/auth/*': path.resolve(__dirname, './src/lib/utils/auth/*'),
         '$lib/utils': path.resolve(__dirname, './src/lib/utils/index.ts'),
         '$lib/utils/*': path.resolve(__dirname, './src/lib/utils/*'),
         $lib: path.resolve(__dirname, './src/lib'),

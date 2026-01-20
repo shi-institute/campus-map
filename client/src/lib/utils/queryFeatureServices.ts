@@ -1,5 +1,6 @@
 import epsg from 'epsg-index/all.json';
 import proj4 from 'proj4';
+import { transformCoordinates } from './features';
 import { getAvailableFeatureServices } from './getAvailableFeatureServices';
 import { isGeoJsonFeature, isGeoJsonFeatureCollection } from './isGeoJson';
 
@@ -189,31 +190,6 @@ export async function queryFeatureServices(
       })
   );
   // merge all responses into a unified GeoJSON FeatureCollection
-}
-
-type Coordinates =
-  | GeoJSON.Point['coordinates']
-  | GeoJSON.MultiPoint['coordinates']
-  | GeoJSON.LineString['coordinates']
-  | GeoJSON.MultiLineString['coordinates']
-  | GeoJSON.Polygon['coordinates']
-  | GeoJSON.MultiPolygon['coordinates'];
-type NestedCoordinates =
-  | GeoJSON.MultiPoint['coordinates']
-  | GeoJSON.LineString['coordinates']
-  | GeoJSON.MultiLineString['coordinates']
-  | GeoJSON.Polygon['coordinates']
-  | GeoJSON.MultiPolygon['coordinates'];
-function transformCoordinates(coords: Coordinates, fromCrs: string, toCrs: string): Coordinates {
-  if (Array.isArray(coords) && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-    // base case: [x, y]
-    return proj4(fromCrs, toCrs, coords as [number, number]);
-  }
-
-  // otherwise recurse through deeper nested coordinate arrays
-  return (coords as NestedCoordinates).map((c) =>
-    transformCoordinates(c as Coordinates, fromCrs, toCrs)
-  ) as Coordinates;
 }
 
 interface FeatureServiceInfoCache {

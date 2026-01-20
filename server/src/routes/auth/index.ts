@@ -174,47 +174,49 @@ export default async (router: Router, app: Koa) => {
   });
 
   router.post('/rest/login', async (ctx, next) => {
-    if (typeof ctx.request.body !== 'object') {
-      const html = generateLoginHtml(ctx, 'Invalid request body.');
+    const format = inferServiceResponseFormat(ctx);
+
+    const dispatchError = (message: string) => {
       ctx.status = 400;
-      ctx.body = html;
-      ctx.type = 'text/html';
+
+      if (format === 'html') {
+        const html = generateLoginHtml(ctx, message);
+        ctx.body = html;
+        ctx.type = 'text/html';
+        return;
+      }
+
+      ctx.body = { error: message };
+      ctx.type = format === 'json' ? 'application/json' : 'text/plain';
+      return;
+    };
+
+    if (typeof ctx.request.body !== 'object') {
+      dispatchError('Invalid request body.');
       return;
     }
 
     const username = ctx.request.body?.username;
     const password = ctx.request.body?.password;
     if (typeof username !== 'string' || typeof password !== 'string') {
-      ctx.status = 400;
-      const html = generateLoginHtml(ctx, 'Missing Username or Password');
-      ctx.body = html;
-      ctx.type = 'text/html';
+      dispatchError('Missing Username or Password');
       return;
     }
 
     return passport.authenticate('ActiveDirectory', async (err, user, info) => {
       if (err) {
         console.error('Authentication error:', err);
-        const html = generateLoginHtml(ctx, 'Authentication error occurred.');
-        ctx.status = 500;
-        ctx.body = html;
-        ctx.type = 'text/html';
+        dispatchError('Authentication error occurred.');
         return;
       }
       if (!user) {
-        const html = generateLoginHtml(ctx, 'Invalid Username or Password');
-        ctx.status = 401;
-        ctx.body = html;
-        ctx.type = 'text/html';
+        dispatchError('Invalid Username or Password.');
         return;
       }
       ctx.login(user, function (loginError: unknown) {
         if (loginError) {
           console.error('Login error:', loginError);
-          const html = generateLoginHtml(ctx, 'Login error occurred.');
-          ctx.status = 500;
-          ctx.body = html;
-          ctx.type = 'text/html';
+          dispatchError('Login error occurred.');
           return;
         }
         ctx.redirect('/rest/services');
@@ -228,9 +230,17 @@ export default async (router: Router, app: Koa) => {
       return;
     }
 
+    const format = inferServiceResponseFormat(ctx);
+
     ctx.logout();
-    ctx.body = generateLogoutHtml(ctx);
-    ctx.type = 'text/html';
+
+    if (format === 'html') {
+      ctx.body = generateLogoutHtml(ctx);
+      ctx.type = 'text/html';
+    } else {
+      ctx.body = { success: true };
+      ctx.type = format === 'json' ? 'application/json' : 'text/plain';
+    }
   });
 
   router.all('/rest/generateToken', async (ctx, next) => {

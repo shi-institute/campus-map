@@ -1,6 +1,7 @@
 <script lang="ts">
   import { LeftPane } from '$lib/components';
   import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
+  import Editor from '$lib/map/editor/Editor.svelte';
   import { goBack, goto, route, url } from '$lib/navigation';
   import { rootStyleToPrintStyle } from '$lib/styles/printMapStyles';
   import {
@@ -11,6 +12,7 @@
     queryFeatureServices,
     useAsync,
   } from '$lib/utils';
+  import { getIsSignedIn } from '$lib/utils/auth';
   import { centroid as computeCentroid } from '@turf/centroid';
   import { type MapMouseEvent } from 'maplibre-gl';
   import { onMount, untrack } from 'svelte';
@@ -189,6 +191,20 @@
     }
     return { ...rootStyleData, name: 'default' };
   }
+
+  let editModeEnabled = $state($url.searchParams.get('edit') === 'true');
+
+  // keep the url in sync with edit mode
+  $effect(() => {
+    const newUrl = new URL($url.href);
+    newUrl.hash = window.location.hash; // preserve the hash
+    if (editModeEnabled) {
+      newUrl.searchParams.set('edit', 'true');
+    } else {
+      newUrl.searchParams.delete('edit');
+    }
+    goto(newUrl.href, true);
+  });
 </script>
 
 <div
@@ -246,6 +262,9 @@
       }}
     >
       <LogoHeader />
+      {#if editModeEnabled}
+        <Editor />
+      {/if}
       <CustomControl position="bottom-left" class="pane-control">
         <Panes.Directions
           {mapFrameHeight}
@@ -341,7 +360,7 @@
         </LeftPane>
       </CustomControl>
 
-      <SceneFooter position="bottom-right" />
+      <SceneFooter position="bottom-right" bind:editModeEnabled />
       <ThemeSwitcher position="bottom-right" />
       <NavigationControl position="top-right" />
       <RasterTileSource
@@ -398,6 +417,10 @@
   .map-frame :global(.map-container) {
     position: absolute;
     inset: 0;
+  }
+
+  :global(.maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right) {
+    top: var(--map-top-offset, 0px);
   }
 
   :global(.maplibregl-ctrl-bottom-left) {

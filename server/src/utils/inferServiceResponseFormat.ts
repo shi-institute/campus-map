@@ -10,9 +10,8 @@ export function inferServiceResponseFormat(ctx: Context) {
     ctx.request.query.f || (typeof ctx.request.body === 'object' ? ctx.request.body.f : undefined);
 
   // header-based content negotiation
-  const acceptsHtml = ctx.request.accepts('text/html', 'application/json', 'text/plain') === 'text/html';
-  const acceptsJson =
-    ctx.request.accepts('application/json', 'text/html', 'text/plain') === 'application/json';
+  const acceptsHtml = ctx.request.accepts('text/html') === 'text/html';
+  const acceptsJson = ctx.request.accepts('application/json') === 'application/json';
 
   if (format === 'html' || (format === undefined && acceptsHtml)) {
     return 'html';

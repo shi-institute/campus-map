@@ -29,7 +29,7 @@ export const printMapLayerStyleOverrides: Record<string, Partial<maplibregl.Laye
 
     return [
       { paint: { ...linePaint, 'line-offset': 2 }, layout: lineLayout },
-      { id: '4wd_road_provisional-right', paint: { ...linePaint, 'line-offset': -2 }, layout: lineLayout },
+      { id: '4wd_road_provisional‾‾right', paint: { ...linePaint, 'line-offset': -2 }, layout: lineLayout },
     ] satisfies Partial<maplibregl.LayerSpecification>[];
   })(),
   abandoned_road_provisional: (() => {
@@ -45,7 +45,7 @@ export const printMapLayerStyleOverrides: Record<string, Partial<maplibregl.Laye
     return [
       { paint: { ...linePaint, 'line-offset': 2 }, layout: lineLayout },
       {
-        id: 'abandoned_road_provisional-right',
+        id: 'abandoned_road_provisional‾‾right',
         paint: { ...linePaint, 'line-offset': -2 },
         layout: lineLayout,
       },

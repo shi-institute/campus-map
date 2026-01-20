@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getIsSignedIn } from '$lib/utils/auth';
   import { AttributionControl, ScaleControl } from 'maplibre-gl';
   import { onDestroy } from 'svelte';
   import { CustomControl, getMapContext } from 'svelte-maplibre-gl';
@@ -14,10 +15,20 @@
      * Attributions to show in addition to any other attributions.
      */
     customAttribution?: string | string[];
+    /**
+     * Whether edit mode is enabled. When the "Edit this map" button is clicked,
+     * this will be set to `true`.
+     *
+     * Defaults to `false`.
+     *
+     * This prop is bindable.
+     */
+    editModeEnabled?: boolean;
   }
 
   let {
     position = 'bottom-right',
+    editModeEnabled = $bindable(false),
     scaleControlOptions,
     customAttribution,
   }: ScaleAndCreditsControlProps = $props();
@@ -125,7 +136,46 @@
     mapCtx.map?.addControl(attributionControl, position);
   });
 
-  // $inspect(attributions);
+  let signInDialog: HTMLDialogElement | null = null;
+  let signInError = $state<string | null>(null);
+  let signInUsername = $state('');
+  let signInPassword = $state('');
+
+  function openSignInDialog() {
+    if (signInDialog) {
+      signInDialog.showModal();
+    }
+  }
+  function closeSignInDialog() {
+    if (signInDialog) {
+      signInDialog.close();
+    }
+  }
+
+  async function signIn({ username, password }: { username: string; password: string }) {
+    await fetch('/rest/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          // check if there is an error message in the response
+          if (response.headers.get('Content-Type')?.includes('application/json')) {
+            const data = await response.json();
+            throw new Error(data.error || 'Sign in failed.');
+          } else {
+            throw new Error('Sign in failed.');
+          }
+        }
+
+        // successful sign in
+        return response.json();
+      })
+      .catch((error) => {
+        signInError = error.message;
+      });
+  }
 </script>
 
 <CustomControl {position} group={false} class="scene-footer-container">
@@ -147,6 +197,22 @@
       <div class="footer-links">
         <a href="https://furman.edu" target="_blank">Furman University</a>
         <a href="https://furman.edu/shi-institute" target="_blank">Shi Applied Research</a>
+        {#if !editModeEnabled}
+          <button
+            onclick={async () => {
+              const isSignedIn = await getIsSignedIn();
+              if (isSignedIn) {
+                editModeEnabled = true;
+              } else {
+                openSignInDialog();
+              }
+            }}
+          >
+            Edit this map
+          </button>
+        {:else}
+          <button onclick={() => (editModeEnabled = false)}> Stop editing </button>
+        {/if}
       </div>
     </div>
     <div class="scale-container">
@@ -154,6 +220,48 @@
       <div class="scale-bar" style:--width={scaleSegmentSize + 'px'}></div>
     </div>
   </div>
+
+  <dialog bind:this={signInDialog} class="sign-in-dialog">
+    <h1>Sign in to edit</h1>
+    <p>You must sign in with your Furman NetID to edit this map.</p>
+    <p class="error">{signInError}</p>
+    <form
+      onsubmit={async (event) => {
+        event.preventDefault();
+        const isSignedIn = await getIsSignedIn();
+
+        if (!isSignedIn) {
+          signIn({ username: signInUsername, password: signInPassword });
+        }
+
+        if (!signInError) {
+          closeSignInDialog();
+          editModeEnabled = true;
+        }
+      }}
+    >
+      <input
+        type="text"
+        id="username"
+        name="username"
+        required
+        placeholder="Username"
+        bind:value={signInUsername}
+      />
+      <input
+        type="password"
+        id="password"
+        name="password"
+        required
+        placeholder="Password"
+        bind:value={signInPassword}
+      />
+      <div class="button-row">
+        <button type="submit"> Sign In </button>
+        <button type="button" onclick={closeSignInDialog}>Cancel</button>
+      </div>
+    </form>
+  </dialog>
 </CustomControl>
 
 <style>
@@ -194,19 +302,70 @@
   .footer-links > *:not(:last-child) {
     margin-right: 0.5rem;
   }
-  .footer-links a {
+  .footer-links :where(a, button) {
     color: currentColor;
     white-space: nowrap;
+    cursor: pointer;
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    padding: 0;
   }
-  .footer-links a:not(:hover):not(:active):not(:focus) {
+  .footer-links :where(a, button):not(:hover):not(:active):not(:focus) {
     opacity: 0.6;
     text-decoration: none;
   }
 
-  .attributions a {
+  .attributions :where(a, button) {
     color: currentColor;
   }
-  .attributions a:not(:hover):not(:active):not(:focus) {
+  .attributions :where(a, button):not(:hover):not(:active):not(:focus) {
     text-decoration: none;
+  }
+
+  .sign-in-dialog {
+    box-shadow: var(--wui-dialog-shadow);
+    border: 1px solid var(--wui-surface-stroke-default);
+    background-color: var(--wui-solid-background-base);
+    font-size: var(--wui-font-size-body);
+    padding: 24px;
+    border-radius: var(--wui-overlay-corner-radius);
+  }
+
+  .sign-in-dialog h1 {
+    font-size: var(--wui-font-size-subtitle);
+    line-height: 28px;
+    font-weight: 500;
+    margin: 0;
+  }
+
+  .sign-in-dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .sign-in-dialog form input {
+    height: 30px;
+  }
+
+  .sign-in-dialog form .button-row {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .sign-in-dialog form button {
+    flex-grow: 1;
+    flex-shrink: 0;
+    height: 30px;
+  }
+
+  .sign-in-dialog .error {
+    color: var(--wui-system-critical);
+    margin: 0.5rem 0 0 0;
   }
 </style>
