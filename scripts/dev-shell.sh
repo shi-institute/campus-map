@@ -48,6 +48,7 @@ if [ "$container_is_running" = false ]; then
     --env-file "$(pwd)/.env" \
     -p 3000:3000 \
     -p 24678:24678 \
+    -p 5433:5432 \
     --name "$CONTAINER" \
     "$IMAGE" >/dev/null
 fi
