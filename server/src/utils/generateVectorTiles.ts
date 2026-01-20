@@ -52,7 +52,7 @@ export async function generateVectorTiles(inputFolder: string, outputFolder: str
     'tippecanoe',
     '--output-to-directory',
     tileGenOutputDir,
-    '-zg', // let tippecanoe choose the maximum zoom level
+    '-z16', // zoom level
     '--drop-densest-as-needed',
     '--extend-zooms-if-still-dropping',
     '--force', // overwrite existing files
