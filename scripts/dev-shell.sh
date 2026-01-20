@@ -34,7 +34,7 @@ fi
 # delete any stopped container with the same name
 if [ "$container_is_running" = false ] && docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   echo -e "${DARK_GRAY}Removing stopped container...${RESET}"
-  docker rm "$CONTAINER"
+  docker rm "$CONTAINER" >/dev/null
 fi
 
 # start container if not running
@@ -49,7 +49,7 @@ if [ "$container_is_running" = false ]; then
     -p 3000:3000 \
     -p 24678:24678 \
     --name "$CONTAINER" \
-    "$IMAGE" >/dev/null 2>&1
+    "$IMAGE" >/dev/null
 fi
 
 # stream logs from the container
