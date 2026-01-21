@@ -1,7 +1,14 @@
 import Router from '@koa/router';
 import { readFile } from 'fs/promises';
 import { z } from 'zod';
-import { jsonToArcGisHtml, routingDatabasePool } from '../../../utils/index.js';
+import {
+  generateServiceDirectoryHeader,
+  inferServiceResponseFormat,
+  initDoc,
+  jsonToArcGisHtml,
+  routingDatabasePool,
+} from '../../../utils/index.js';
+import registerQueryRoute from './query.js';
 
 export default (router: Router, serviceFolder: string, serviceRootPathname: string) => {
   // serve FU.RoutingServer.json
@@ -49,6 +56,50 @@ export default (router: Router, serviceFolder: string, serviceRootPathname: stri
       ctx.status = 500;
     }
   });
+
+  router.get('/solve', async (ctx) => {
+    const format = inferServiceResponseFormat(ctx);
+    ctx.status = 400;
+
+    if (format !== 'html') {
+      ctx.type = format === 'json' ? 'application/json' : 'text/plain';
+      ctx.body = {
+        error: 'This operation is only available via POST requests.',
+      };
+      return;
+    }
+
+    const { document, body, titleElement } = initDoc('Solve Route');
+
+    // write header
+    const headerTables = generateServiceDirectoryHeader(
+      { document, user: ctx.state.user },
+      {
+        serviceRootPathname: '/rest/services',
+        currentPathname: ctx.path,
+      }
+    );
+    headerTables.forEach((table) => body.appendChild(table));
+    body.appendChild(titleElement);
+
+    const rbody = document.createElement('div');
+    rbody.setAttribute('class', 'rbody');
+    body.appendChild(rbody);
+
+    const errorDiv = document.createElement('div');
+    errorDiv.setAttribute('style', 'color:#ff6666');
+    errorDiv.appendChild(document.createTextNode('This operation is only available via POST requests.'));
+    const br = document.createElement('br');
+    errorDiv.appendChild(br);
+    rbody.appendChild(errorDiv);
+
+    ctx.type = 'text/html';
+    ctx.body = document.toString();
+  });
+
+  if (process.env.NODE_ENV === 'development') {
+    registerQueryRoute(router);
+  }
 };
 
 interface SolveRouteParams {

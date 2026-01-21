@@ -199,7 +199,7 @@ export function jsonToArcGisHtml(
     viewInCampusMapLink.appendChild(document.createTextNode('Furman Campus Map'));
     linkElements.push(viewInCampusMapLink);
   }
-  writeProperty('View in', ...linkElements);
+  writeProperty('View In', ...linkElements);
 
   // styles
   if (type === 'VectorTileServer' && typeof data.defaultStyles === 'string') {
@@ -372,8 +372,30 @@ export function jsonToArcGisHtml(
 
   // write remaining properties as JSON
   const restJson = document.createElement('pre');
-  restJson.appendChild(document.createTextNode(JSON.stringify(data, null, 2)));
+  restJson.appendChild(document.createTextNode('\n\n' + JSON.stringify(data, null, 2)));
+  restJson.setAttribute('style', 'display: inline;');
   writeProperty('Additional Properties', restJson);
+
+  // supported operations link list
+  var supportedOperationsLinks: Element[] = [];
+  if (type === 'FU.RoutingServer' && serviceName === 'FurmanCampusGraph') {
+    const solveRouteLink = document.createElement('a');
+    const solveRouteUrl = new URL(url.toString());
+    solveRouteUrl.pathname += '/solve';
+    solveRouteLink.setAttribute('href', withoutOrigin(solveRouteUrl));
+    solveRouteLink.appendChild(document.createTextNode('Solve Route'));
+    supportedOperationsLinks.push(solveRouteLink);
+
+    const queryLink = document.createElement('a');
+    const queryUrl = new URL(url.toString());
+    queryUrl.pathname += '/query';
+    queryLink.setAttribute('href', withoutOrigin(queryUrl));
+    queryLink.appendChild(document.createTextNode('Query'));
+    supportedOperationsLinks.push(queryLink);
+  }
+  if (supportedOperationsLinks.length > 0) {
+    writeProperty('Supported Operations', ...supportedOperationsLinks);
+  }
 
   return document.toString();
 }

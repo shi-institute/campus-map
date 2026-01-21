@@ -646,9 +646,10 @@ export async function requireToken(ctx: Context, next: Koa.Next) {
       })();
     }
 
-    return;
+    return false;
   }
   await next();
+  return true;
 }
 
 /**
