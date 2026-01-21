@@ -10,7 +10,8 @@
     "build:backend": "NODE_ENV=production tsc --noEmitOnError false --skipLibCheck true --outDir dist && npm run migratepy",
     "build:frontend": "node -e \"require('./dist/client').buildFrontend()\"",
     "migratepy": "find src -type f -name \"*.py\" -exec sh -c 'dest=\"dist/${1#src/}\"; mkdir -p \"$(dirname \"$dest\")\"; cp \"$1\" \"$dest\"' _ {} \\;",
-    "postinstall": "patch-package"
+    "install-client-deps": "cd ../client && npm install",
+    "postinstall": "patch-package && npm run install-client-deps"
   },
   "author": "Jack Buehner",
   "license": "ISC",

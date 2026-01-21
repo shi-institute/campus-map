@@ -141,6 +141,7 @@ until [ -f /tmp/container_ready ]; do sleep 0.5; done
 echo -e "${WHITE_ON_DARK_CYAN} '"$CONTAINER"' ${RESET}  ${GREEN}connected${RESET}"
 echo -e "   ${BOLD_DARK_GRAY}run ${YELLOW_ITALIC}exit${RESET}${BOLD_DARK_GRAY} to stop this container${RESET}"
 echo -e "   ${DARK_GRAY}run ${YELLOW_ITALIC}npm run dev${RESET}${DARK_GRAY} to start the development server${RESET}"
+echo -e "   ${DARK_GRAY}run ${YELLOW_ITALIC}npm install${RESET}${DARK_GRAY} to install dependencies${RESET}"
 echo -e "   ${DARK_GRAY}run ${YELLOW_ITALIC}npm run build${RESET}${DARK_GRAY} to output an optimized production build${RESET}"
 echo -e "   ${DARK_GRAY}run ${YELLOW_ITALIC}npm run start${RESET}${DARK_GRAY} to start the server${RESET}"
 echo
