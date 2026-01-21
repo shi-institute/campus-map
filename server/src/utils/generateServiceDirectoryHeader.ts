@@ -32,7 +32,7 @@ export function generateServiceDirectoryHeader({ document, user, formats }: Head
     const logoutLink = document.createElement('a');
     logoutLink.setAttribute('href', '/rest/logout');
     logoutLink.setAttribute('data-no-token', '');
-    logoutLink.appendChild(document.createTextNode('Logout'));
+    logoutLink.appendChild(document.createTextNode('Sign out'));
     rightCell.appendChild(userText);
     rightCell.appendChild(logoutLink);
   } else {
