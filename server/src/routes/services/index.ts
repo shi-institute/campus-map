@@ -50,7 +50,7 @@ export default async (router: Router) => {
       });
 
     // allow browsing the list of services and folders
-    router.get(['/', '*path'], async (ctx) => {
+    router.all(['/', '*path'], async (ctx) => {
       const format = inferServiceResponseFormat(ctx);
 
       // get the folders and services in this directory
