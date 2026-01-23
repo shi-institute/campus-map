@@ -1,0 +1,9 @@
+export { convertMapFeatureToTerraDrawOnClick } from './convertMapFeatureToTerraDrawOnClick.svelte.js';
+export { inferMode } from './inferMode.js';
+export { normalizeFeature } from './normalizeFeature.js';
+export { parseFeatureId } from './parseFeatureId.js';
+export { recordAddition } from './recordAddition.js';
+export { recordDeletions } from './recordDeletions.js';
+export { recordModification } from './recordModification.js';
+export { resetFeature } from './resetFeature.js';
+export { getValidLayerTypes } from './ValidLayerTypes.svelte.js';
