@@ -22,6 +22,20 @@ export async function convertMapFeatureToTerraDrawOnClick(
   draw: TerraDraw,
   pixelRadius = 1
 ) {
+  function queryLngLat(map: maplibregl.Map, lngLat: maplibregl.LngLat) {
+    // define a small bounding box around the point
+    const radius = 1; // pixels
+    const point = map.project(lngLat);
+    const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
+      [point.x - radius, point.y - radius],
+      [point.x + radius, point.y + radius],
+    ];
+
+    // get the features within the bounding box
+    const features = map.queryRenderedFeatures(bbox, {});
+    return features;
+  }
+
   // convert features to Terra Draw features on click
   $effect(() => {
     if (!mapCtx.map) {
@@ -31,16 +45,8 @@ export async function convertMapFeatureToTerraDrawOnClick(
     async function convertFeatureToTerraDraw(event: maplibregl.MapMouseEvent) {
       const map = event.target;
 
-      // define a small bounding box around the clicked point
-      const radius = 1; // pixels
-      const point = map.project(event.lngLat);
-      const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
-        [point.x - radius, point.y - radius],
-        [point.x + radius, point.y + radius],
-      ];
-
       // get the features within the bounding box
-      const features = map.queryRenderedFeatures(bbox, {});
+      const features = queryLngLat(map, event.lngLat);
       if (features.length !== 1) {
         return;
       }
@@ -152,20 +158,26 @@ export async function convertMapFeatureToTerraDrawOnClick(
     function showPointerCursorOverFeatures(event: maplibregl.MapMouseEvent) {
       const map = event.target;
 
-      const point = map.project(event.lngLat);
-      const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
-        [point.x - pixelRadius, point.y - pixelRadius],
-        [point.x + pixelRadius, point.y + pixelRadius],
-      ];
+      const features = queryLngLat(map, event.lngLat);
 
-      const features = map.queryRenderedFeatures(bbox, {});
+      // show not-allowed cursor if hovering over another user's selection
+      // since clicking it will just immediately deselect it
+      const isOtherUserSelection = features.some(
+        (feature) =>
+          feature.layer.id === 'their-selection-layer' || feature.layer.id === 'their-selection-fill-layer'
+      );
+      if (isOtherUserSelection) {
+        map.getCanvas().style.cursor = 'not-allowed';
+        return;
+      }
 
-      if (
-        (features.length > 0 && map.getCanvas().style.cursor === '') ||
-        map.getCanvas().style.cursor === 'pointer'
-      ) {
+      if (features.length > 0 && map.getCanvas().style.cursor === '') {
         map.getCanvas().style.cursor = 'pointer';
-      } else if (map.getCanvas().style.cursor === 'pointer') {
+        return;
+      }
+
+      // reset cursor if not hovering over features
+      if (map.getCanvas().style.cursor === 'pointer' || map.getCanvas().style.cursor === 'not-allowed') {
         map.getCanvas().style.cursor = '';
       }
     }

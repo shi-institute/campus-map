@@ -55,6 +55,7 @@
         circle: defaultSelectFlags,
         'angled-rectangle': defaultSelectFlags,
       },
+      pointerDistance: 5,
     }),
     new TerraDrawPointMode(),
     new TerraDrawLineStringMode(),
@@ -260,8 +261,6 @@
       return globallySelected.theirSelectedFeatures;
     }, globallySelected.theirSelectedFeatures)
   );
-
-  $inspect(ourSelectedFeatures);
 </script>
 
 <TerraDraw
@@ -343,6 +342,15 @@
       paint={{ 'line-color': '#e042ff', 'line-width': 10, 'line-opacity': 0.8 }}
       layout={{ 'line-cap': 'round', 'line-join': 'round' }}
     />
+  </GeoJSONSource>
+  <GeoJSONSource
+    data={{
+      type: 'FeatureCollection',
+      features: theirSelectedFeatures.filter((feature) => feature.geometry.type === 'Polygon'),
+    }}
+    maxzoom={24}
+  >
+    <FillLayer id="their-selection-fill-layer" paint={{ 'fill-opacity': 0 }} />
   </GeoJSONSource>
 {/key}
 
