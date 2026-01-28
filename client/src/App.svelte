@@ -12,11 +12,11 @@
     queryFeatureServices,
     useAsync,
   } from '$lib/utils';
-  import { getIsSignedIn } from '$lib/utils/auth';
   import { centroid as computeCentroid } from '@turf/centroid';
   import { type MapMouseEvent } from 'maplibre-gl';
   import { onMount, untrack } from 'svelte';
   import {
+    BackgroundLayer,
     CustomControl,
     MapLibre,
     NavigationControl,
@@ -359,6 +359,8 @@
           {/if}
         </LeftPane>
       </CustomControl>
+
+      <BackgroundLayer id="background" paint={{ 'background-color': 'rgba(0,0,0,0)' }} />
 
       <SceneFooter position="bottom-right" bind:editModeEnabled />
       <ThemeSwitcher position="bottom-right" />
