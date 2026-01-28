@@ -1,6 +1,7 @@
 import { getCurrentUser } from '$lib/utils/auth';
 import { getFeatureFromService } from '$lib/utils/features';
 import { TrysteroProvider as WebrtcProvider } from '@winstonfassett/y-webrtc-trystero';
+import type { getMapContext } from 'svelte-maplibre-gl';
 import { createSubscriber } from 'svelte/reactivity';
 import type { GeoJSONStoreFeatures, TerraDraw } from 'terra-draw';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -122,97 +123,83 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
   }
 
   // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
-  protected get applyLayerFilters() {
-    return (map: maplibregl.Map, sourceId: string) => {
-      const style = map.getStyle();
-      const layers = style.layers || [];
-      const sourceLayers = layers.filter((layer) => layer.type !== 'background' && layer.source === sourceId);
+  protected applyLayerFilters(map: maplibregl.Map, sourceId: string) {
+    const style = map.getStyle();
+    const layers = style.layers || [];
+    const sourceLayers = layers.filter((layer) => layer.type !== 'background' && layer.source === sourceId);
 
-      const uniqueLayerNames = new Set<string>();
-      for (const layer of sourceLayers) {
-        if (layer.type !== 'background' && layer['source-layer']) {
-          uniqueLayerNames.add(layer['source-layer']);
-        }
+    const uniqueLayerNames = new Set<string>();
+    for (const layer of sourceLayers) {
+      if (layer.type !== 'background' && layer['source-layer']) {
+        uniqueLayerNames.add(layer['source-layer']);
+      }
+    }
+
+    for (const layerName of uniqueLayerNames) {
+      const layer = map.getLayer(layerName);
+      if (!layer) {
+        continue;
       }
 
-      for (const layerName of uniqueLayerNames) {
-        const layer = map.getLayer(layerName);
-        if (!layer) {
+      const filter = this.layerFilters[layerName];
+      if (filter) {
+        const existingFilter = map.getFilter(layerName);
+        if (!existingFilter) {
+          map.setFilter(layerName, filter);
           continue;
         }
 
-        const filter = this.layerFilters[layerName];
-        if (filter) {
-          const existingFilter = map.getFilter(layerName);
-          if (!existingFilter) {
-            console.log('No existing filter for layer. Applying tracked edits filter:', layerName, filter);
-            map.setFilter(layerName, filter);
-            continue;
-          }
-
-          const isTrackedEditsFilter = (expr: maplibregl.ExpressionSpecification) => {
-            return (
-              Array.isArray(expr) &&
-              expr[0] === '!' &&
-              Array.isArray(expr[1]) &&
-              expr[1][0] === 'in' &&
-              Array.isArray(expr[1][1]) &&
-              expr[1][1][0] === 'to-string' &&
-              Array.isArray(expr[1][1][1]) &&
-              expr[1][1][1][0] === 'id' &&
-              Array.isArray(expr[1][2]) &&
-              expr[1][2][0] === 'literal' &&
-              Array.isArray(expr[1][2][1])
-            );
-          };
-
-          // if the existing filter is a tracked edits filter, replace it
-          if (isTrackedEditsFilter(existingFilter as maplibregl.ExpressionSpecification)) {
-            console.log('Replacing existing tracked edits filter for layer:', layerName, filter);
-            map.setFilter(layerName, filter);
-            continue;
-          }
-
-          const startsWithAllExpression = Array.isArray(existingFilter) && existingFilter[0] === 'all';
-          if (!startsWithAllExpression) {
-            // combine existing filter with tracked edits filter
-            const combinedFilter: maplibregl.ExpressionSpecification = [
-              'all',
-              existingFilter as maplibregl.ExpressionSpecification,
-              filter,
-            ];
-            console.log(
-              'Adding tracked edits filter to existing filter for layer:',
-              layerName,
-              combinedFilter
-            );
-            map.setFilter(layerName, combinedFilter);
-            continue;
-          }
-
-          const existingExpressions: maplibregl.ExpressionSpecification[] = startsWithAllExpression
-            ? (existingFilter.slice(1) as maplibregl.ExpressionSpecification[])
-            : [existingFilter as maplibregl.ExpressionSpecification];
-
-          // if the existing all expression already includes a tracked edits filter, replace it
-          const existingTrackedEditsFilterIndex = existingExpressions.findIndex(isTrackedEditsFilter);
-          if (existingTrackedEditsFilterIndex !== -1) {
-            existingExpressions[existingTrackedEditsFilterIndex] = filter;
-            map;
-            continue;
-          }
-
-          // otherwise, add the tracked edits filter to the all expression
-          const combinedFilter: maplibregl.ExpressionSpecification = ['all', ...existingExpressions, filter];
-          console.log(
-            'Adding tracked edits filter to existing all expression for layer:',
-            layerName,
-            combinedFilter
+        const isTrackedEditsFilter = (expr: maplibregl.ExpressionSpecification) => {
+          return (
+            Array.isArray(expr) &&
+            expr[0] === '!' &&
+            Array.isArray(expr[1]) &&
+            expr[1][0] === 'in' &&
+            Array.isArray(expr[1][1]) &&
+            expr[1][1][0] === 'to-string' &&
+            Array.isArray(expr[1][1][1]) &&
+            expr[1][1][1][0] === 'id' &&
+            Array.isArray(expr[1][2]) &&
+            expr[1][2][0] === 'literal' &&
+            Array.isArray(expr[1][2][1])
           );
-          map.setFilter(layerName, combinedFilter);
+        };
+
+        // if the existing filter is a tracked edits filter, replace it
+        if (isTrackedEditsFilter(existingFilter as maplibregl.ExpressionSpecification)) {
+          map.setFilter(layerName, filter);
+          continue;
         }
+
+        const startsWithAllExpression = Array.isArray(existingFilter) && existingFilter[0] === 'all';
+        if (!startsWithAllExpression) {
+          // combine existing filter with tracked edits filter
+          const combinedFilter: maplibregl.ExpressionSpecification = [
+            'all',
+            existingFilter as maplibregl.ExpressionSpecification,
+            filter,
+          ];
+          map.setFilter(layerName, combinedFilter);
+          continue;
+        }
+
+        const existingExpressions: maplibregl.ExpressionSpecification[] = startsWithAllExpression
+          ? (existingFilter.slice(1) as maplibregl.ExpressionSpecification[])
+          : [existingFilter as maplibregl.ExpressionSpecification];
+
+        // if the existing all expression already includes a tracked edits filter, replace it
+        const existingTrackedEditsFilterIndex = existingExpressions.findIndex(isTrackedEditsFilter);
+        if (existingTrackedEditsFilterIndex !== -1) {
+          existingExpressions[existingTrackedEditsFilterIndex] = filter;
+          map;
+          continue;
+        }
+
+        // otherwise, add the tracked edits filter to the all expression
+        const combinedFilter: maplibregl.ExpressionSpecification = ['all', ...existingExpressions, filter];
+        map.setFilter(layerName, combinedFilter);
       }
-    };
+    }
   }
 
   /**
@@ -221,7 +208,7 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
    * aware of the current state of edits in the document.
    */
   // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
-  sync(draw: TerraDraw, map: maplibregl.Map) {
+  sync(draw: TerraDraw, mapCtx: ReturnType<typeof getMapContext>) {
     this.__deepSubscribe();
 
     for (const layerId of this.keys()) {
@@ -306,7 +293,9 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
       applyEditsToTerraDraw();
     }
 
-    this.applyLayerFilters(map, 'esri');
+    mapCtx.waitForSourceLoaded('esri', (map) => {
+      this.applyLayerFilters(map, 'esri');
+    });
   }
 
   /**

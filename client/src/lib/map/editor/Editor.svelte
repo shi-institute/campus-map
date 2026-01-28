@@ -1,7 +1,7 @@
 <script lang="ts">
   import { TerraDraw } from '@svelte-maplibre-gl/terradraw';
   import { onDestroy, onMount } from 'svelte';
-  import { getMapContext, Marker } from 'svelte-maplibre-gl';
+  import { GeoJSONSource, getMapContext, Marker, RawLayer } from 'svelte-maplibre-gl';
   import type { TerraDraw as Draw, TerraDrawEventListeners } from 'terra-draw';
   import {
     TerraDrawAngledRectangleMode,
@@ -157,12 +157,35 @@
     };
   });
 
+  let isDrawReady = $state(false);
   $effect(() => {
-    if (editorDoc.ready) {
-      mapCtx.waitForStyleLoaded((map) => {
+    if (!draw) {
+      return;
+    }
+    if (!isDrawReady && draw.enabled) {
+      isDrawReady = true;
+    }
+    if (isDrawReady && !draw.enabled) {
+      isDrawReady = false;
+
+      // keep checking until draw is re-enabled
+      let timeToWait = 100;
+      const interval = setInterval(() => {
         if (draw && draw.enabled) {
-          console.log('Syncing tracked edits to map');
-          editorDoc.trackedEdits.sync(draw, map);
+          isDrawReady = true;
+          clearInterval(interval);
+        } else {
+          timeToWait *= 2; // exponential backoff
+        }
+      }, timeToWait);
+    }
+  });
+
+  $effect(() => {
+    if (editorDoc.ready && isDrawReady) {
+      mapCtx.waitForStyleLoaded(() => {
+        if (draw && draw.enabled) {
+          editorDoc.trackedEdits.sync(draw, mapCtx);
         }
       });
     }
@@ -226,6 +249,9 @@
   }}
   ondeselect={() => (selected = null)}
   onfinish={handleFinish}
+  onready={() => {
+    console.log('TerraDraw ready, syncing tracked edits to map');
+  }}
   idStrategy={{
     isValidId: (id) => {
       try {
