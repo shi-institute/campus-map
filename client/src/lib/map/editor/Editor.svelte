@@ -226,11 +226,15 @@
     }
   });
 
+  let updateCounter = $state(0);
+
   $effect(() => {
     if (editorDoc.ready && isDrawReady) {
       mapCtx.waitForStyleLoaded(() => {
         if (draw && draw.enabled) {
-          editorDoc.trackedEdits.sync(draw, mapCtx);
+          editorDoc.trackedEdits.sync(draw, mapCtx, () => {
+            updateCounter += 1;
+          });
         }
       });
     }
@@ -266,6 +270,11 @@
       return { ourSelectedFeatures: [], theirSelectedFeatures: [] };
     }
 
+    // depend on updateCounter to recompute when features change
+    // because it increments whenever the features are updated,
+    // including selected features
+    updateCounter;
+
     const { ourIds, theirIds } = editorDoc.awareness.globalSelectedLayerFeatureIds;
     if (ourIds.length === 0 && theirIds.length === 0) {
       return { ourSelectedFeatures: [], theirSelectedFeatures: [] };
@@ -281,7 +290,9 @@
     with_previous((prev) => {
       const isEqual =
         prev.length === globallySelected.ourSelectedFeatures.length &&
-        prev.every((feature, index) => feature.id === globallySelected.ourSelectedFeatures[index].id);
+        prev.every(
+          (feature, index) => feature.geometry === globallySelected.ourSelectedFeatures[index].geometry
+        );
       if (isEqual) {
         return prev;
       }
@@ -293,7 +304,9 @@
     with_previous((prev) => {
       if (
         prev.length === globallySelected.theirSelectedFeatures.length &&
-        prev.every((feature, index) => feature.id === globallySelected.theirSelectedFeatures[index].id)
+        prev.every(
+          (feature, index) => feature.geometry === globallySelected.theirSelectedFeatures[index].geometry
+        )
       ) {
         return prev;
       }
@@ -422,6 +435,12 @@
     {/if}
   </div>
   <div class="menu-row">
+    <button disabled={!editorDoc.undoManager.canUndo} onclick={() => editorDoc.undoManager.undo()}>
+      Undo
+    </button>
+    <button disabled={!editorDoc.undoManager.canRedo} onclick={() => editorDoc.undoManager.redo()}>
+      Redo
+    </button>
     {#each modeNames as modeName (modeName)}
       <label>
         <input type="radio" bind:group={mode} value={modeName} disabled={isControlDisabled(modeName)} />

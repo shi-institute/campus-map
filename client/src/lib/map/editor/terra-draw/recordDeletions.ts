@@ -2,6 +2,8 @@ import type { TerraDrawEventListeners } from 'terra-draw';
 import type { EditorDoc } from '../editorDoc';
 import { parseFeatureId } from './parseFeatureId';
 
+export const untrackNextDeletion = new Map<FeatureIds[0], true>();
+
 /**
  * Records which features have been deleted via Terra Draw.
  *
@@ -31,7 +33,22 @@ export function recordDeletions(doc: EditorDoc, featureIds: FeatureIds, type: Ty
 
   for (const layerName in groupedByLayer) {
     const featureIds = groupedByLayer[layerName];
-    doc.trackedEdits.registerDeletions(layerName, featureIds);
+
+    const filteredFeatureIds = featureIds.filter((id) => {
+      const key = `${id}.${layerName}`;
+      if (untrackNextDeletion.has(key)) {
+        // do not track this time, but remove the flag so future deletions are tracked
+        untrackNextDeletion.delete(key);
+        return false;
+      }
+      return true;
+    });
+
+    if (filteredFeatureIds.length === 0) {
+      continue;
+    }
+
+    doc.trackedEdits.registerDeletions(layerName, filteredFeatureIds);
   }
 
   return;

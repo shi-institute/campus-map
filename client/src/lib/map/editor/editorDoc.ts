@@ -6,14 +6,16 @@ import { createSubscriber } from 'svelte/reactivity';
 import type { GeoJSONStoreFeatures, TerraDraw } from 'terra-draw';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import * as Y from 'yjs';
-import { SvelteYArray, SvelteYAwareness, SvelteYMap } from './interactive-shared-types';
-import { inferMode, normalizeFeature } from './terra-draw';
+import { SvelteYArray, SvelteYAwareness, SvelteYMap, SvelteYUndoManager } from './interactive-shared-types';
+import { inferMode, normalizeFeature, parseFeatureId } from './terra-draw';
+import { untrackNextDeletion } from './terra-draw/recordDeletions';
 
 export class EditorDoc {
   ydoc: Y.Doc;
   #globalMap: SvelteYMap<{}>;
   #trackedEdits: TrackedEdits;
   #readySubscriber: () => void;
+  undoManager: SvelteYUndoManager;
 
   awareness: SvelteYAwareness;
   persistence: IndexeddbPersistence;
@@ -22,7 +24,6 @@ export class EditorDoc {
   constructor(roomName: string) {
     this.ydoc = new Y.Doc();
     this.#globalMap = new SvelteYMap(() => this.ydoc.getMap('global'));
-    this.#trackedEdits = new TrackedEdits(this.ydoc);
 
     const awareness = new SvelteYAwareness(this.ydoc);
     getCurrentUser().then((userInfo) => {
@@ -38,6 +39,24 @@ export class EditorDoc {
             .toString(16)
             .padStart(6, '0'),
       };
+    });
+
+    // // log what is changed
+    // this.ydoc.on('afterTransaction', (tr) => {
+    //   const top = Array.from(tr.changedParentTypes).find(([type, events], index, obj) => {
+    //     return !type.parent || obj.map((o) => o[0]).includes(type.parent);
+    //   });
+
+    //   if (top) {
+    //     const deltas = top[1].map((event) => event.delta);
+    //     console.log(top[0], ...deltas);
+    //   }
+    // });
+
+    const userTrackedEditsOrigin = `tracked-edits_${awareness.clientId}`;
+    this.#trackedEdits = new TrackedEdits(this, userTrackedEditsOrigin);
+    this.undoManager = new SvelteYUndoManager(this.ydoc, {
+      trackedOrigins: new Set([userTrackedEditsOrigin, this.ydoc]),
     });
 
     const persistence = new IndexeddbPersistence(roomName, this.ydoc);
@@ -81,9 +100,21 @@ type AllowedProperties = GeoJSONStoreFeatures['properties'];
 class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }> {
   // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
   layerFilters: LayerFiltersHelper;
+  // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
+  editorDoc: EditorDoc;
 
-  constructor(ydoc: Y.Doc) {
-    super(() => ydoc.getMap('trackedEdits'));
+  /**
+   * Creates a new TrackedEdits instance to track edits across multiple layers.
+   *
+   * Data are backed by the 'trackedEdits' Y.Map in the given Y.Doc.
+   *
+   * @param ydoc
+   * @param origin Origin of who started the transaction. Will be stored on `transaction.origin`.
+   * @returns
+   */
+  constructor(editorDoc: EditorDoc, origin?: string) {
+    super(() => editorDoc.ydoc.getMap('trackedEdits'), origin);
+    this.editorDoc = editorDoc;
 
     const proxy = new Proxy(this, {
       get(target, prop, receiver) {
@@ -93,7 +124,7 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
           return function* () {
             for (const [key, value] of originalEntries.call(target)) {
               if (value instanceof SvelteYMap && value.layerId) {
-                yield [key, new TrackedLayerEdits(target, value.layerId)];
+                yield [key, new TrackedLayerEdits(target, value.layerId, origin)];
               } else {
                 yield [key, value];
               }
@@ -107,7 +138,7 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
           return function* () {
             for (const value of originalValues.call(target)) {
               if (value instanceof SvelteYMap && value.layerId) {
-                yield new TrackedLayerEdits(target, value.layerId);
+                yield new TrackedLayerEdits(target, value.layerId, origin);
               } else {
                 yield value;
               }
@@ -123,9 +154,9 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
         if (typeof prop === 'string') {
           // create a TrackedLayerEdits for this layer if it does not exist
           if (!target.has(prop)) {
-            target[prop] = new TrackedLayerEdits(target, prop);
+            target[prop] = new TrackedLayerEdits(target, prop, origin);
           }
-          return new TrackedLayerEdits(target, prop);
+          return new TrackedLayerEdits(target, prop, origin);
         }
 
         return Reflect.get(target, prop, receiver);
@@ -143,17 +174,18 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
    * aware of the current state of edits in the document.
    */
   // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
-  sync(draw: TerraDraw, mapCtx: ReturnType<typeof getMapContext>) {
+  sync(draw: TerraDraw, mapCtx: ReturnType<typeof getMapContext>, done?: () => void) {
     this.__deepSubscribe();
+
+    const featuresToRemove: string[] = [];
+    const featuresToReset: string[] = [];
+    const featuresToAdd: GeoJSON.Feature<AllowedGeometries, AllowedProperties>[] = [];
+    const featuresToModify: GeoJSON.Feature<AllowedGeometries, AllowedProperties>[] = [];
 
     for (const layerId of this.keys()) {
       const layerEdits = this[layerId];
 
       const applyEditsToTerraDraw = () => {
-        const featuresToRemove: string[] = [];
-        const featuresToAdd: GeoJSON.Feature<AllowedGeometries, AllowedProperties>[] = [];
-        const featuresToModify: GeoJSON.Feature<AllowedGeometries, AllowedProperties>[] = [];
-
         // remove deleted features from TerraDraw
         for (const featureId of layerEdits.deletedIds) {
           const terraDrawFeatureId = `${featureId}.${layerId}`;
@@ -178,7 +210,7 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
           }
 
           if (terraDrawFeature) {
-            featuresToModify.push(feature);
+            featuresToModify.push({ ...feature, id: terraDrawFeatureId });
             continue;
           }
 
@@ -205,7 +237,7 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
           }
 
           if (terraDrawFeature) {
-            featuresToModify.push(feature);
+            featuresToModify.push({ ...feature, id: terraDrawFeatureId });
             continue;
           }
 
@@ -216,20 +248,67 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
             properties: { ...feature.properties, mode },
           });
         }
-
-        draw.removeFeatures(featuresToRemove);
-        draw.addFeatures(featuresToAdd);
-        for (const feature of featuresToModify) {
-          const terraDrawFeatureId = `${feature.id}.${layerId}`;
-          draw.updateFeatureGeometry(terraDrawFeatureId, feature.geometry);
-          draw.updateFeatureProperties(terraDrawFeatureId, feature.properties);
-        }
       };
       applyEditsToTerraDraw();
     }
 
+    // search for features that exist in terra-draw but were not found in
+    // the tracked edits (in case the edits were cleared or undone)
+    const allTrackedIds = new Map<string, Set<FeatureId>>();
+    for (const [layerId, layerEdits] of this) {
+      allTrackedIds.set(
+        layerId,
+        new Set<FeatureId>([...layerEdits.addedIds, ...layerEdits.modifiedIds, ...layerEdits.deletedIds])
+      );
+    }
+    draw.getSnapshot().forEach((feature) => {
+      if (!feature.id) {
+        return;
+      }
+
+      const { layerId, featureId } = parseFeatureId(feature.id);
+      if ([...allTrackedIds.keys()].includes(layerId) === false) {
+        return;
+      }
+
+      const isTracked = allTrackedIds.get(layerId)?.has(featureId);
+      if (isTracked) {
+        return;
+      }
+
+      const terraDrawFeatureId = `${featureId}.${layerId}`;
+      featuresToReset.push(terraDrawFeatureId);
+    });
+
+    if (
+      featuresToRemove.length === 0 &&
+      featuresToAdd.length === 0 &&
+      featuresToModify.length === 0 &&
+      featuresToReset.length === 0
+    ) {
+      return;
+    }
+
+    // pause the undo manager to prevent external changes from
+    // being included in the undo manager history
+    const resumeUndoManager = this.editorDoc.undoManager.pause();
+
+    draw.removeFeatures(featuresToRemove);
+    draw.addFeatures(featuresToAdd);
+    for (const feature of featuresToModify) {
+      draw.updateFeatureGeometry(feature.id as string, feature.geometry);
+      draw.updateFeatureProperties(feature.id as string, feature.properties);
+    }
+    for (const terraDrawFeatureId of featuresToReset) {
+      untrackNextDeletion.set(terraDrawFeatureId, true);
+    }
+    draw.removeFeatures(featuresToReset);
+
+    resumeUndoManager();
+
     mapCtx.waitForSourceLoaded('esri', (map) => {
       this.layerFilters.apply(map, 'esri');
+      done?.();
     });
   }
 
@@ -458,13 +537,14 @@ class TrackedLayerEdits extends SvelteYMap<{
   modified: SvelteYArray<GeoJSON.Feature<AllowedGeometries, AllowedProperties>>;
   layerId: LayerId;
 }> {
-  constructor(parent: TrackedEdits, layerId: string) {
+  constructor(parent: TrackedEdits, layerId: string, origin: string | undefined) {
     if (!parent.doc) {
       throw new Error('Parent TrackedEdits must have a Y.Doc associated with it.');
     }
 
     super(
       () => parent[layerId]?.current || new Y.Map(),
+      origin,
       (ymap) => {
         const added = ymap.get('added') as
           | Y.Array<GeoJSON.Feature<AllowedGeometries, AllowedProperties>>
@@ -550,7 +630,7 @@ class TrackedLayerEdits extends SvelteYMap<{
     const existingDeletedIds = this.deletedIds;
     featureIds = featureIds.filter((id) => !existingDeletedIds.includes(id));
 
-    this.doc.transact(() => {
+    this.doc.transact((tr) => {
       // for any feature IDs present in added or modifications,
       // remove the feature from those lists
       for (const id of featureIds) {
@@ -570,7 +650,7 @@ class TrackedLayerEdits extends SvelteYMap<{
       }
 
       this.deleted.push(featureIds);
-    });
+    }, this.__origin);
   }
 
   /**
@@ -581,9 +661,9 @@ class TrackedLayerEdits extends SvelteYMap<{
       throw new Error('TrackedLayerEdits must have a Y.Doc associated with it.');
     }
 
-    this.doc.transact((tr) => {
+    this.doc.transact(() => {
       this.added.push(features);
-    });
+    }, this.__origin);
   }
 
   /**
@@ -600,7 +680,9 @@ class TrackedLayerEdits extends SvelteYMap<{
       throw new Error('TrackedLayerEdits must have a Y.Doc associated with it.');
     }
 
-    this.doc.transact(async () => {
+    new Promise<Array<() => void>>(async (resolve, reject) => {
+      const actions: Array<() => void> = [];
+
       for await (const feature of features) {
         if (feature.id === undefined) {
           console.warn('Cannot register modification for feature without ID:', feature);
@@ -610,16 +692,20 @@ class TrackedLayerEdits extends SvelteYMap<{
         // if the feature is already in additions, update it there instead
         const additionIndex = this.added.array.findIndex((f) => f.id === feature.id);
         if (additionIndex !== -1) {
-          this.added.delete(additionIndex);
-          this.added.insert(additionIndex, [feature]);
+          actions.push(() => {
+            this.added.delete(additionIndex);
+            this.added.insert(additionIndex, [feature]);
+          });
           continue;
         }
 
         // if the feature is already in modifications, update it there
         const modificationIndex = this.modified.array.findIndex((f) => f.id === feature.id);
         if (modificationIndex !== -1) {
-          this.modified.delete(modificationIndex);
-          this.modified.insert(modificationIndex, [feature]);
+          actions.push(() => {
+            this.modified.delete(modificationIndex);
+            this.modified.insert(modificationIndex, [feature]);
+          });
           continue;
         }
 
@@ -632,13 +718,23 @@ class TrackedLayerEdits extends SvelteYMap<{
         // we should treat this as an addition, not a modification
         const foundFeature = await getFeatureFromService(`data/data."${this.layerId}"`, feature.id);
         if (!foundFeature) {
-          this.added.push([feature]);
+          actions.push(() => {
+            this.added.push([feature]);
+          });
           continue;
         }
 
         // otherwise, add it to modifications
-        this.modified.push([feature]);
+        actions.push(() => {
+          this.modified.push([feature]);
+        });
       }
+
+      resolve(actions);
+    }).then((actions) => {
+      this.doc?.transact(() => {
+        actions.forEach((action) => action());
+      }, this.__origin);
     });
   }
 

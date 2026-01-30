@@ -7,10 +7,17 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
   protected __subscribe: () => void;
   protected __deepSubscribe: () => void;
   __type = 'Array' as const;
+  __origin?: string;
 
-  constructor(getter: () => Y.Array<T>) {
+  /**
+   * Creates a reactive wrapper around a Y.Array.
+   * @param getter Function that returns the underlying Y.Array to be used by this SvelteYArray
+   * @param origin Origin of who started the transaction. Will be stored on transaction.origin
+   */
+  constructor(getter: () => Y.Array<T>, origin?: string) {
     super();
     this.__yarray = getter();
+    this.__origin = origin;
 
     this.__subscribe = createSubscriber((update) => {
       // whenever a change happens in the Y.Array, re-run any effects that read `this.current`
@@ -66,7 +73,7 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
           target.__yarray.doc?.transact(() => {
             target.__yarray.delete(index, 1);
             target.__yarray.insert(index, [value]);
-          });
+          }, origin);
 
           return true;
         }
@@ -84,7 +91,9 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
 
         if (typeof prop === 'string' && !isNaN(Number(prop))) {
           const index = Number(prop);
-          target.__yarray.delete(index, 1);
+          target.__yarray.doc?.transact(() => {
+            target.__yarray.delete(index, 1);
+          }, origin);
           return true;
         }
 
@@ -126,25 +135,33 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
   }
 
   insert(index: number, content: T[]) {
-    this.__yarray.insert(index, content);
+    this.doc?.transact(() => {
+      this.__yarray.insert(index, content);
+    }, this.__origin);
   }
 
   delete(index: number, length?: number) {
-    this.__yarray.delete(index, length);
+    this.doc?.transact(() => {
+      this.__yarray.delete(index, length);
+    }, this.__origin);
   }
 
   /**
    * Appends the given content to the end of the array.
    */
   push(content: T[]) {
-    this.__yarray.push(content);
+    this.doc?.transact(() => {
+      this.__yarray.push(content);
+    }, this.__origin);
   }
 
   /**
    * Prepends the given content to the start of the array.
    */
   unshift(content: T[]) {
-    this.__yarray.unshift(content);
+    this.doc?.transact(() => {
+      this.__yarray.unshift(content);
+    }, this.__origin);
   }
 
   get(index: number): T | undefined {
@@ -154,7 +171,9 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
 
   slice(start: number, end?: number): T[] {
     this.__subscribe();
-    return this.__yarray.slice(start, end).map((element) => this.toReactiveSharedType(element));
+    return this.__yarray
+      .slice(start, end)
+      .map((element) => this.toReactiveSharedType(element, this.__origin));
   }
 
   get array(): T[] {
@@ -179,7 +198,7 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
     this.__subscribe();
 
     for (const element of this.__yarray) {
-      yield this.toReactiveSharedType(element);
+      yield this.toReactiveSharedType(element, this.__origin);
     }
   }
 

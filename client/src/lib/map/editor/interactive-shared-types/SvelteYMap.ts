@@ -8,12 +8,19 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
   protected __subscribe: () => void;
   protected __deepSubscribe: () => void;
   __type = 'Map' as const;
+  __origin?: string;
 
   private __abstractTypeTransforms: Record<string, 'Array' | 'Map'> = {};
 
-  constructor(getter: () => Y.Map<T>, ...args: DefaultValuesArg<T>) {
+  /**
+   * Creates a reactive wrapper around a Y.Map.
+   * @param getter Function that returns the underlying Y.Map to be used by this SvelteYMap
+   * @param origin Origin of who started the transaction. Will be stored on transaction.origin
+   */
+  constructor(getter: () => Y.Map<T>, origin?: string, ...args: DefaultValuesArg<T>) {
     super();
     this.__ymap = getter();
+    this.__origin = origin;
     if (!this.doc && this.__ymap.doc) {
       this.doc = this.__ymap.doc;
     }
@@ -34,7 +41,9 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
     });
 
     // set any default values that were missing
-    const setDefaults = () => {
+    const collectDefaultsToSet = () => {
+      const actions: (() => void)[] = [];
+
       for (const key in defaultValues) {
         let valueToSet = defaultValues[key];
 
@@ -45,16 +54,17 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
 
         if (!this.__ymap.has(key) && valueToSet !== undefined && valueToSet !== null) {
           // @ts-expect-error Yjs has the wrong type for the value parameter
-          this.__ymap.set(key, valueToSet);
+          actions.push(() => this.__ymap.set(key, valueToSet));
         }
       }
+
+      return actions;
     };
-    if (this.__ymap.doc) {
+    const actions = collectDefaultsToSet();
+    if (this.__ymap.doc && actions.length > 0) {
       this.__ymap.doc?.transact(() => {
-        setDefaults();
-      });
-    } else {
-      setDefaults();
+        actions.forEach((action) => action());
+      }, this.__origin);
     }
 
     // return a proxy that intercepts property gets/sets/deletes
@@ -96,7 +106,9 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
             value = value.current;
           }
 
-          target.__ymap.set(prop, value);
+          target.__ymap.doc?.transact(() => {
+            target.__ymap.set(prop, value);
+          }, target.__origin);
           return true;
         }
 
@@ -108,7 +120,9 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
         }
 
         if (typeof prop === 'string') {
-          target.__ymap.delete(prop);
+          target.__ymap.doc?.transact(() => {
+            target.__ymap.delete(prop);
+          }, target.__origin);
           return true;
         }
 
@@ -134,7 +148,7 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
    */
   private getWithTransform(key: string) {
     const value = this.__ymap.get(key) as T[keyof T] | undefined;
-    return this.toReactiveSharedType(value);
+    return this.toReactiveSharedType(value, this.__origin);
   }
 
   get current() {
@@ -143,7 +157,9 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
   }
 
   clear() {
-    this.__ymap.clear();
+    this.doc?.transact(() => {
+      this.__ymap.clear();
+    }, this.__origin);
   }
 
   get json() {
@@ -173,7 +189,7 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
     this.__subscribe();
 
     for (const [key, value] of this.__ymap.entries()) {
-      yield [key, this.toReactiveSharedType(value)] as Entry<T>;
+      yield [key, this.toReactiveSharedType(value, this.__origin)] as Entry<T>;
     }
   }
 
@@ -181,7 +197,7 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
     this.__subscribe();
 
     for (const value of this.__ymap.values()) {
-      yield this.toReactiveSharedType(value as T[keyof T]);
+      yield this.toReactiveSharedType(value as T[keyof T], this.__origin);
     }
   }
 
@@ -259,6 +275,7 @@ export type SvelteYMap<T extends Record<string, unknown>> = _SvelteYMap<T> & T &
  */
 export const SvelteYMap = _SvelteYMap as new <T extends Record<string, unknown>>(
   getter: () => Y.Map<T>,
+  origin?: string,
   ...args: DefaultValuesArg<T>
 ) => SvelteYMap<T>;
 

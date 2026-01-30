@@ -1,6 +1,7 @@
 import type { TerraDraw, TerraDrawEventListeners } from 'terra-draw';
 import type { EditorDoc } from '../editorDoc';
 import { parseFeatureId } from './parseFeatureId';
+import { untrackNextDeletion } from './recordDeletions';
 
 /**
  * Resets features that were modified via Terra Draw back to their original state.
@@ -23,21 +24,8 @@ export function resetFeature(doc: EditorDoc, draw: TerraDraw, featureId: Feature
   // remove the feature from the modified features array
   layerEdits.modified.delete(index, 1);
 
-  // Since we are removing the feature from terra draw
-  // in order to reset it, Terra Draw will add it to the
-  // deleted features array. We need to remove it from there
-  // to ensure that the feature is reset rather than deleted.
-  const removeFromDeletions = ((event, tr) => {
-    const newValues = layerEdits.deleted.array;
-    if (newValues.includes(fid)) {
-      const delIndex = newValues.indexOf(fid);
-      layerEdits.deleted.delete(delIndex, 1);
-      layerEdits.deleted.current.unobserve(removeFromDeletions);
-    }
-  }) satisfies Parameters<typeof layerEdits.deleted.current.observe>[0];
-  layerEdits.deleted.current.observe(removeFromDeletions);
-
   // remove from terra draw
+  untrackNextDeletion.set(featureId, true); // do not track this deletion
   draw.removeFeatures([featureId]);
   draw.deselectFeature(featureId);
 }
