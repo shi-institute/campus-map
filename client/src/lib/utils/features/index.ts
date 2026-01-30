@@ -1,6 +1,7 @@
 export { convertMultiLineStringToLineStrings } from './convertMultiLineStringToLineStrings.js';
 export { getFeatureFromService } from './getFeatureFromService.js';
 export { getFeatureServiceDetails } from './getFeatureServiceDetails.js';
+export { queryLngLat } from './queryLngLat.js';
 export { reprojectFeature } from './reprojectFeature.js';
 export { transformCoordinates } from './transformCoordinates.js';
 

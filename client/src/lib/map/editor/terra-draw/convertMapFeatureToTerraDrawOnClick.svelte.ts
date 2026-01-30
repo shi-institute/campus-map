@@ -1,6 +1,7 @@
 import {
   convertMultiLineStringToLineStrings,
   getFeatureFromService,
+  queryLngLat,
   reprojectFeature,
 } from '$lib/utils/features';
 import type { getMapContext } from 'svelte-maplibre-gl';
@@ -22,20 +23,6 @@ export async function convertMapFeatureToTerraDrawOnClick(
   draw: TerraDraw,
   pixelRadius = 1
 ) {
-  function queryLngLat(map: maplibregl.Map, lngLat: maplibregl.LngLat) {
-    // define a small bounding box around the point
-    const radius = 1; // pixels
-    const point = map.project(lngLat);
-    const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
-      [point.x - radius, point.y - radius],
-      [point.x + radius, point.y + radius],
-    ];
-
-    // get the features within the bounding box
-    const features = map.queryRenderedFeatures(bbox, {});
-    return features;
-  }
-
   // convert features to Terra Draw features on click
   $effect(() => {
     if (!mapCtx.map) {

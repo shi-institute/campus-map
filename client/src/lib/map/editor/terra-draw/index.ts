@@ -6,4 +6,5 @@ export { recordAddition } from './recordAddition.js';
 export { recordDeletions } from './recordDeletions.js';
 export { recordModification } from './recordModification.js';
 export { resetFeature } from './resetFeature.js';
+export { useSnapping } from './useSnapping.js';
 export { getValidLayerTypes } from './ValidLayerTypes.svelte.js';

@@ -3,6 +3,7 @@
   import { TerraDraw } from '@svelte-maplibre-gl/terradraw';
   import { onDestroy, onMount, tick } from 'svelte';
   import { FillLayer, GeoJSONSource, getMapContext, LineLayer, Marker } from 'svelte-maplibre-gl';
+  import { readable, writable } from 'svelte/store';
   import type { TerraDraw as Draw, TerraDrawEventListeners } from 'terra-draw';
   import {
     TerraDrawAngledRectangleMode,
@@ -22,6 +23,7 @@
     recordDeletions,
     recordModification,
     resetFeature,
+    useSnapping,
   } from './terra-draw';
 
   const mapCtx = getMapContext();
@@ -42,14 +44,46 @@
   });
   // $inspect(editorDoc.trackedEdits.json);
 
+  // track whether the ctrl key is being held
+  // so we can disable snapping while it is held
+  let ctrlKeyActive = writable(false);
+  onMount(() => {
+    function keyboardListener(event: KeyboardEvent) {
+      $ctrlKeyActive = event.ctrlKey;
+    }
+    window.addEventListener('keydown', keyboardListener);
+    window.addEventListener('keyup', keyboardListener);
+    return () => {
+      window.removeEventListener('keydown', keyboardListener);
+      window.removeEventListener('keyup', keyboardListener);
+    };
+  });
+
   const defaultSelectFlags = {
-    feature: { draggable: true, coordinates: { deletable: true, midpoints: true, draggable: true } },
+    feature: {
+      draggable: true,
+      coordinates: {
+        deletable: true,
+        midpoints: true,
+        draggable: true,
+        snappable: useSnapping(mapCtx, ctrlKeyActive),
+      },
+      selfIntersectable: false,
+    },
   };
-  const modes = [
+  const modes = $derived([
     new TerraDrawSelectMode({
       flags: {
         point: defaultSelectFlags,
-        linestring: defaultSelectFlags,
+        linestring: {
+          ...defaultSelectFlags,
+          feature: {
+            ...defaultSelectFlags.feature,
+            // the creation process does not prevent self-intersections,
+            // so blocking it here would make some linestrings become uneditable
+            selfIntersectable: true,
+          },
+        },
         polygon: defaultSelectFlags,
         freehand: defaultSelectFlags,
         circle: defaultSelectFlags,
@@ -58,13 +92,13 @@
       pointerDistance: 5,
     }),
     new TerraDrawPointMode(),
-    new TerraDrawLineStringMode(),
-    new TerraDrawPolygonMode(),
+    new TerraDrawLineStringMode({ snapping: useSnapping(mapCtx, ctrlKeyActive) }),
+    new TerraDrawPolygonMode({ snapping: useSnapping(mapCtx, ctrlKeyActive) }),
     new TerraDrawCircleMode(),
     new TerraDrawFreehandMode(),
     new TerraDrawAngledRectangleMode(),
-  ];
-  const modeNames = modes.map((mode) => mode.mode);
+  ]);
+  const modeNames = $derived(modes.map((mode) => mode.mode));
   let mode = $state('select');
   let selected: string | number | null = $state(null);
   let draw: Draw | undefined = $state.raw();
