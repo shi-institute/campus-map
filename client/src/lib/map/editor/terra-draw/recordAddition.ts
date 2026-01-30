@@ -1,5 +1,5 @@
 import type { TerraDraw, TerraDrawEventListeners } from 'terra-draw';
-import type { EditorDoc } from '../editorDoc';
+import type { EditorDoc } from '../editorDoc.svelte';
 import { normalizeFeature } from './normalizeFeature';
 import { parseFeatureId } from './parseFeatureId';
 
@@ -17,7 +17,7 @@ import { parseFeatureId } from './parseFeatureId';
  * this function does nothing and returns false.
  *
  * If the feature is successfully recorded as a new addition,
- * this function returns true.
+ * this function returns the full terra draw feature id.
  */
 export function recordAddition(
   doc: EditorDoc,
@@ -26,7 +26,7 @@ export function recordAddition(
   context: Context,
   destinationLayerId: string
 ) {
-  const { layerId, featureId } = parseFeatureId(id);
+  let { layerId, featureId } = parseFeatureId(id);
   const isTerraDrawLayer = layerId === 'terra-draw';
 
   const isNewlyDrawnFeature = featureId < 0 && isTerraDrawLayer && context.action === 'draw';
@@ -47,16 +47,24 @@ export function recordAddition(
     return false;
   }
 
+  // find the largest negative ID not already used in the destination layer
+  // and use that as the new feature ID
+  const tracker = doc.trackedEdits[destinationLayerId];
+  const existingFeatureIds = new Set([...tracker.deletedIds, ...tracker.addedIds, ...tracker.modifiedIds]);
+  const usedIds = [...existingFeatureIds].filter((id): id is number => typeof id === 'number' && id < 0);
+  let newId = -1;
+  while (usedIds.includes(newId)) {
+    newId--;
+  }
+
   // reassign the feature to the destination layer
-  const newFeatureId = `${featureId}.${destinationLayerId}`;
+  const newFeatureId = `${newId}.${destinationLayerId}`;
   draw.removeFeatures([id]);
   draw.addFeatures([{ ...feature, id: newFeatureId }]);
 
   // record the finished edit
-  doc.trackedEdits.registerModifications(destinationLayerId, [
-    normalizeFeature({ ...feature, id: featureId }),
-  ]);
-  return true;
+  doc.trackedEdits.registerModifications(destinationLayerId, [normalizeFeature({ ...feature, id: newId })]);
+  return newFeatureId;
 }
 
 type FeatureId = Parameters<TerraDrawEventListeners['finish']>[0];
