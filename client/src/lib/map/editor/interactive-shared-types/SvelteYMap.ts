@@ -134,16 +134,7 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
    */
   private getWithTransform(key: string) {
     const value = this.__ymap.get(key) as T[keyof T] | undefined;
-    if (value) {
-      if (value instanceof Y.Array) {
-        return new SvelteYArray(() => value);
-      }
-      if (value instanceof Y.Map) {
-        const svelteYMap = new _SvelteYMap(() => value);
-        return svelteYMap;
-      }
-    }
-    return value;
+    return this.toReactiveSharedType(value);
   }
 
   get current() {
@@ -181,8 +172,8 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
   *entries(): IterableIterator<Entry<T>> {
     this.__subscribe();
 
-    for (const entry of this.__ymap.entries()) {
-      yield entry as Entry<T>;
+    for (const [key, value] of this.__ymap.entries()) {
+      yield [key, this.toReactiveSharedType(value)] as Entry<T>;
     }
   }
 
@@ -190,7 +181,7 @@ class _SvelteYMap<T extends Record<string, unknown>> extends SvelteYAbstractType
     this.__subscribe();
 
     for (const value of this.__ymap.values()) {
-      yield value as T[keyof T];
+      yield this.toReactiveSharedType(value as T[keyof T]);
     }
   }
 
@@ -270,3 +261,5 @@ export const SvelteYMap = _SvelteYMap as new <T extends Record<string, unknown>>
   getter: () => Y.Map<T>,
   ...args: DefaultValuesArg<T>
 ) => SvelteYMap<T>;
+
+SvelteYAbstractType.__registeredTypes.set('SvelteYMap', SvelteYMap);

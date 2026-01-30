@@ -154,12 +154,12 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
 
   slice(start: number, end?: number): T[] {
     this.__subscribe();
-    return this.__yarray.slice(start, end);
+    return this.__yarray.slice(start, end).map((element) => this.toReactiveSharedType(element));
   }
 
   get array(): T[] {
     this.__deepSubscribe();
-    return this.__yarray.toArray() ?? [];
+    return Array.from(this);
   }
 
   toArray() {
@@ -179,7 +179,7 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
     this.__subscribe();
 
     for (const element of this.__yarray) {
-      yield element;
+      yield this.toReactiveSharedType(element);
     }
   }
 
@@ -203,3 +203,5 @@ export class SvelteYArray<T> extends SvelteYAbstractType<Y.Array<T>, Y.YArrayEve
     return results;
   }
 }
+
+SvelteYAbstractType.__registeredTypes.set('SvelteYArray', SvelteYArray);
