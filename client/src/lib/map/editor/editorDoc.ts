@@ -84,6 +84,34 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
 
     return new Proxy(this, {
       get(target, prop, receiver) {
+        // override the entries method to yield TrackedLayerEdits instances
+        if (prop === 'entries') {
+          const originalEntries = Reflect.get(target, prop, receiver);
+          return function* () {
+            for (const [key, value] of originalEntries.call(target)) {
+              if (value instanceof SvelteYMap && value.layerId) {
+                yield [key, new TrackedLayerEdits(target, value.layerId)];
+              } else {
+                yield [key, value];
+              }
+            }
+          };
+        }
+
+        // override the values method to yield TrackedLayerEdits instances
+        if (prop === 'values') {
+          const originalValues = Reflect.get(target, prop, receiver);
+          return function* () {
+            for (const value of originalValues.call(target)) {
+              if (value instanceof SvelteYMap && value.layerId) {
+                yield new TrackedLayerEdits(target, value.layerId);
+              } else {
+                yield value;
+              }
+            }
+          };
+        }
+
         // if the property name is a method, property, or getter on the class, return that
         if (Reflect.has(target, prop)) {
           return Reflect.get(target, prop, receiver);
