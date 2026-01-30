@@ -201,6 +201,11 @@
       });
     }
   });
+  onDestroy(() => {
+    mapCtx.waitForStyleLoaded((map) => {
+      editorDoc.trackedEdits.layerFilters.reset(map, 'esri');
+    });
+  });
 
   function isControlDisabled(modeName: string) {
     if (!layerForNewFeatures) {

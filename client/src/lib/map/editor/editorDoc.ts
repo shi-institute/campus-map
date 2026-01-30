@@ -79,10 +79,13 @@ type AllowedGeometries = GeoJSONStoreFeatures['geometry'];
 type AllowedProperties = GeoJSONStoreFeatures['properties'];
 
 class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }> {
+  // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
+  layerFilters: LayerFiltersHelper;
+
   constructor(ydoc: Y.Doc) {
     super(() => ydoc.getMap('trackedEdits'));
 
-    return new Proxy(this, {
+    const proxy = new Proxy(this, {
       get(target, prop, receiver) {
         // override the entries method to yield TrackedLayerEdits instances
         if (prop === 'entries') {
@@ -128,106 +131,10 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
         return Reflect.get(target, prop, receiver);
       },
     });
-  }
 
-  /**
-   * Gets the filters that must be applied to each layer on the map
-   * to hide features that have been edited. The features are rendered
-   * by terra draw, so they must be hidden on the map layer.
-   */
-  // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
-  protected get layerFilters() {
-    const filters: { [key: LayerId]: maplibregl.ExpressionSpecification | undefined } = {};
+    this.layerFilters = new LayerFiltersHelper(proxy);
 
-    for (const layerId of this.keys()) {
-      const layerEdits = this[layerId];
-      const excludedIds = layerEdits.modifiedOrDeletedIds.map((id) => id.toString());
-      if (excludedIds.length > 0) {
-        filters[layerId] = ['!', ['in', ['to-string', ['id']], ['literal', excludedIds]]];
-      }
-    }
-
-    return filters;
-  }
-
-  // @ts-expect-error Typescript does not like that this is not a TrackedLayerEdits class instance
-  protected applyLayerFilters(map: maplibregl.Map, sourceId: string) {
-    const style = map.getStyle();
-    const layers = style.layers || [];
-    const sourceLayers = layers.filter((layer) => layer.type !== 'background' && layer.source === sourceId);
-
-    const uniqueLayerNames = new Set<string>();
-    for (const layer of sourceLayers) {
-      if (layer.type !== 'background' && layer['source-layer']) {
-        uniqueLayerNames.add(layer['source-layer']);
-      }
-    }
-
-    for (const layerName of uniqueLayerNames) {
-      const layer = map.getLayer(layerName);
-      if (!layer) {
-        continue;
-      }
-
-      const filter = this.layerFilters[layerName];
-      if (filter) {
-        const existingFilter = map.getFilter(layerName);
-        if (!existingFilter) {
-          map.setFilter(layerName, filter);
-          continue;
-        }
-
-        const isTrackedEditsFilter = (expr: maplibregl.ExpressionSpecification) => {
-          return (
-            Array.isArray(expr) &&
-            expr[0] === '!' &&
-            Array.isArray(expr[1]) &&
-            expr[1][0] === 'in' &&
-            Array.isArray(expr[1][1]) &&
-            expr[1][1][0] === 'to-string' &&
-            Array.isArray(expr[1][1][1]) &&
-            expr[1][1][1][0] === 'id' &&
-            Array.isArray(expr[1][2]) &&
-            expr[1][2][0] === 'literal' &&
-            Array.isArray(expr[1][2][1])
-          );
-        };
-
-        // if the existing filter is a tracked edits filter, replace it
-        if (isTrackedEditsFilter(existingFilter as maplibregl.ExpressionSpecification)) {
-          map.setFilter(layerName, filter);
-          continue;
-        }
-
-        const startsWithAllExpression = Array.isArray(existingFilter) && existingFilter[0] === 'all';
-        if (!startsWithAllExpression) {
-          // combine existing filter with tracked edits filter
-          const combinedFilter: maplibregl.ExpressionSpecification = [
-            'all',
-            existingFilter as maplibregl.ExpressionSpecification,
-            filter,
-          ];
-          map.setFilter(layerName, combinedFilter);
-          continue;
-        }
-
-        const existingExpressions: maplibregl.ExpressionSpecification[] = startsWithAllExpression
-          ? (existingFilter.slice(1) as maplibregl.ExpressionSpecification[])
-          : [existingFilter as maplibregl.ExpressionSpecification];
-
-        // if the existing all expression already includes a tracked edits filter, replace it
-        const existingTrackedEditsFilterIndex = existingExpressions.findIndex(isTrackedEditsFilter);
-        if (existingTrackedEditsFilterIndex !== -1) {
-          existingExpressions[existingTrackedEditsFilterIndex] = filter;
-          map;
-          continue;
-        }
-
-        // otherwise, add the tracked edits filter to the all expression
-        const combinedFilter: maplibregl.ExpressionSpecification = ['all', ...existingExpressions, filter];
-        map.setFilter(layerName, combinedFilter);
-      }
-    }
+    return proxy;
   }
 
   /**
@@ -322,7 +229,7 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
     }
 
     mapCtx.waitForSourceLoaded('esri', (map) => {
-      this.applyLayerFilters(map, 'esri');
+      this.layerFilters.apply(map, 'esri');
     });
   }
 
@@ -369,6 +276,179 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
   }
 }
 
+/**
+ * A helper class for hiding features that have been edited
+ * from the vector tile layers on the map. Layers are hidden
+ * by applying filters to the map layers to exclude features
+ * with IDs that have been edited. Call `apply` to apply the
+ * filters to the map, and `reset` to remove them.
+ */
+class LayerFiltersHelper {
+  private trackedEdits: TrackedEdits;
+
+  constructor(trackedEdits: TrackedEdits) {
+    this.trackedEdits = trackedEdits;
+  }
+
+  /**
+   * Gets the filters that must be applied to each layer on the map
+   * to hide features that have been edited. The features are rendered
+   * by terra draw, so they must be hidden on the map layer.
+   */
+  private get toApply() {
+    const filters: { [key: LayerId]: maplibregl.ExpressionSpecification | undefined } = {};
+
+    for (const [layerId, layerEdits] of this.trackedEdits) {
+      const excludedIds = layerEdits.modifiedOrDeletedIds.map((id) => id.toString());
+      if (excludedIds.length > 0) {
+        filters[layerId] = ['!', ['in', ['to-string', ['id']], ['literal', excludedIds]]];
+      }
+    }
+
+    return filters;
+  }
+
+  /**
+   * Determines if the given expression is a filter that
+   * was applied by this helper to hide tracked edits.
+   */
+  private isTrackedEditsFilter(expr: maplibregl.ExpressionSpecification) {
+    return (
+      Array.isArray(expr) &&
+      expr[0] === '!' &&
+      Array.isArray(expr[1]) &&
+      expr[1][0] === 'in' &&
+      Array.isArray(expr[1][1]) &&
+      expr[1][1][0] === 'to-string' &&
+      Array.isArray(expr[1][1][1]) &&
+      expr[1][1][1][0] === 'id' &&
+      Array.isArray(expr[1][2]) &&
+      expr[1][2][0] === 'literal' &&
+      Array.isArray(expr[1][2][1])
+    );
+  }
+
+  /**
+   * A generator that yields the current layers on the map
+   * that are associated with the given source. The generator
+   * yields tuples of `[layerName, existingLayerFilter]`.
+   */
+  private *current(map: maplibregl.Map, sourceId: string) {
+    const style = map.getStyle();
+    const layers = style.layers || [];
+    const sourceLayers = layers.filter((layer) => layer.type !== 'background' && layer.source === sourceId);
+
+    const uniqueLayerNames = new Set<string>();
+    for (const layer of sourceLayers) {
+      if (layer.type !== 'background' && layer['source-layer']) {
+        uniqueLayerNames.add(layer['source-layer']);
+      }
+    }
+
+    for (const layerName of uniqueLayerNames) {
+      const layer = map.getLayer(layerName);
+      if (!layer) {
+        continue;
+      }
+
+      const existingFilter = map.getFilter(layerName);
+      yield [layerName, existingFilter || undefined] as const;
+    }
+  }
+
+  /**
+   * Applied the necessary filters to the map to hide
+   * features from the specified source that have been
+   * edited.
+   */
+  apply(map: maplibregl.Map, sourceId: string) {
+    for (const [layerName, existingFilter] of this.current(map, sourceId)) {
+      const filter = this.toApply[layerName];
+      if (!filter) {
+        continue;
+      }
+
+      if (!existingFilter) {
+        map.setFilter(layerName, filter);
+        continue;
+      }
+
+      // if the existing filter is a tracked edits filter, replace it
+      if (this.isTrackedEditsFilter(existingFilter as maplibregl.ExpressionSpecification)) {
+        map.setFilter(layerName, filter);
+        continue;
+      }
+
+      const startsWithAllExpression = Array.isArray(existingFilter) && existingFilter[0] === 'all';
+      if (!startsWithAllExpression) {
+        // combine existing filter with tracked edits filter
+        const combinedFilter: maplibregl.ExpressionSpecification = [
+          'all',
+          existingFilter as maplibregl.ExpressionSpecification,
+          filter,
+        ];
+        map.setFilter(layerName, combinedFilter);
+        continue;
+      }
+
+      const existingExpressions: maplibregl.ExpressionSpecification[] = startsWithAllExpression
+        ? (existingFilter.slice(1) as maplibregl.ExpressionSpecification[])
+        : [existingFilter as maplibregl.ExpressionSpecification];
+
+      // if the existing all expression already includes a tracked edits filter, replace it
+      const existingTrackedEditsFilterIndex = existingExpressions.findIndex(this.isTrackedEditsFilter);
+      if (existingTrackedEditsFilterIndex !== -1) {
+        existingExpressions[existingTrackedEditsFilterIndex] = filter;
+        map;
+        continue;
+      }
+
+      // otherwise, add the tracked edits filter to the all expression
+      const combinedFilter: maplibregl.ExpressionSpecification = ['all', ...existingExpressions, filter];
+      map.setFilter(layerName, combinedFilter);
+    }
+  }
+
+  /**
+   * Removes any filters applied by the `apply` method
+   * for the specified source.
+   */
+  reset(map: maplibregl.Map, sourceId: string) {
+    for (const [layerName, existingFilter] of this.current(map, sourceId)) {
+      if (!existingFilter) {
+        continue;
+      }
+
+      if (this.isTrackedEditsFilter(existingFilter as maplibregl.ExpressionSpecification)) {
+        map.setFilter(layerName, undefined);
+        continue;
+      }
+
+      const startsWithAllExpression = Array.isArray(existingFilter) && existingFilter[0] === 'all';
+      if (!startsWithAllExpression) {
+        continue;
+      }
+
+      const existingExpressions: maplibregl.ExpressionSpecification[] = startsWithAllExpression
+        ? (existingFilter.slice(1) as maplibregl.ExpressionSpecification[])
+        : [existingFilter as maplibregl.ExpressionSpecification];
+
+      // filter out any tracked edits filters
+      const filteredExpressions = existingExpressions.filter((expr) => !this.isTrackedEditsFilter(expr));
+      if (filteredExpressions.length === 0) {
+        map.setFilter(layerName, undefined);
+        continue;
+      }
+      if (filteredExpressions.length === 1) {
+        map.setFilter(layerName, filteredExpressions[0]);
+        continue;
+      }
+      const combinedFilter: maplibregl.ExpressionSpecification = ['all', ...filteredExpressions];
+      map.setFilter(layerName, combinedFilter);
+    }
+  }
+}
+
 class TrackedLayerEdits extends SvelteYMap<{
   /** The features added within this layer */
   added: SvelteYArray<GeoJSON.Feature<AllowedGeometries, AllowedProperties>>;
@@ -376,9 +456,8 @@ class TrackedLayerEdits extends SvelteYMap<{
   deleted: SvelteYArray<FeatureId>;
   /** The modified features within this layer, stored  */
   modified: SvelteYArray<GeoJSON.Feature<AllowedGeometries, AllowedProperties>>;
+  layerId: LayerId;
 }> {
-  private __layerId: string;
-
   constructor(parent: TrackedEdits, layerId: string) {
     if (!parent.doc) {
       throw new Error('Parent TrackedEdits must have a Y.Doc associated with it.');
@@ -398,11 +477,10 @@ class TrackedLayerEdits extends SvelteYMap<{
           added: new SvelteYArray(() => added || new Y.Array()),
           deleted: new SvelteYArray(() => deleted || new Y.Array()),
           modified: new SvelteYArray(() => modified || new Y.Array()),
+          layerId,
         };
       }
     );
-
-    this.__layerId = layerId;
 
     return new Proxy(this, {
       get(target, prop, receiver) {
@@ -415,10 +493,6 @@ class TrackedLayerEdits extends SvelteYMap<{
         return Reflect.get(target, prop, receiver);
       },
     });
-  }
-
-  get layerId() {
-    return this.__layerId;
   }
 
   get changedCount() {
@@ -556,7 +630,7 @@ class TrackedLayerEdits extends SvelteYMap<{
 
         // if the feature ID does not already exist on the feature service,
         // we should treat this as an addition, not a modification
-        const foundFeature = await getFeatureFromService(`data/data."${this.__layerId}"`, feature.id);
+        const foundFeature = await getFeatureFromService(`data/data."${this.layerId}"`, feature.id);
         if (!foundFeature) {
           this.added.push([feature]);
           continue;
