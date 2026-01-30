@@ -261,6 +261,8 @@
         }
       }}
     >
+      <BackgroundLayer id="background" paint={{ 'background-color': 'rgba(0,0,0,0)' }} />
+
       <LogoHeader />
       {#if editModeEnabled}
         <Editor />
@@ -359,8 +361,6 @@
           {/if}
         </LeftPane>
       </CustomControl>
-
-      <BackgroundLayer id="background" paint={{ 'background-color': 'rgba(0,0,0,0)' }} />
 
       <SceneFooter position="bottom-right" bind:editModeEnabled />
       <ThemeSwitcher position="bottom-right" />

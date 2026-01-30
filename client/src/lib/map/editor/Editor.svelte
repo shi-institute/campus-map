@@ -289,9 +289,6 @@
   }}
   ondeselect={() => (selected = null)}
   onfinish={handleFinish}
-  onready={() => {
-    console.log('TerraDraw ready, syncing tracked edits to map');
-  }}
   idStrategy={{
     isValidId: (id) => {
       try {
@@ -311,53 +308,49 @@
 />
 
 <!-- show a layer with a teal background to highlight our selected features -->
-{#key ourSelectedFeatures}
-  <GeoJSONSource
-    data={{
-      type: 'FeatureCollection',
-      features: ourSelectedFeatures.filter(
-        (feature) => feature.geometry.type === 'Polygon' || feature.geometry.type === 'LineString'
-      ),
-    }}
-    maxzoom={24}
-  >
-    <LineLayer
-      beforeId="background"
-      id="our-selection-layer"
-      paint={{ 'line-color': '#40ffff', 'line-width': 10 }}
-      layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-    />
-  </GeoJSONSource>
-{/key}
+<GeoJSONSource
+  data={{
+    type: 'FeatureCollection',
+    features: ourSelectedFeatures.filter(
+      (feature) => feature.geometry.type === 'Polygon' || feature.geometry.type === 'LineString'
+    ),
+  }}
+  maxzoom={24}
+>
+  <LineLayer
+    beforeId="background"
+    id="our-selection-layer"
+    paint={{ 'line-color': '#40ffff', 'line-width': 10 }}
+    layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+  />
+</GeoJSONSource>
 
 <!-- show a layer with a red background to highlight their select features -->
-{#key theirSelectedFeatures}
-  <GeoJSONSource
-    data={{
-      type: 'FeatureCollection',
-      features: theirSelectedFeatures.filter(
-        (feature) => feature.geometry.type === 'Polygon' || feature.geometry.type === 'LineString'
-      ),
-    }}
-    maxzoom={24}
-  >
-    <LineLayer
-      beforeId="background"
-      id="their-selection-layer"
-      paint={{ 'line-color': '#e042ff', 'line-width': 10, 'line-opacity': 0.8 }}
-      layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-    />
-  </GeoJSONSource>
-  <GeoJSONSource
-    data={{
-      type: 'FeatureCollection',
-      features: theirSelectedFeatures.filter((feature) => feature.geometry.type === 'Polygon'),
-    }}
-    maxzoom={24}
-  >
-    <FillLayer id="their-selection-fill-layer" paint={{ 'fill-opacity': 0 }} />
-  </GeoJSONSource>
-{/key}
+<GeoJSONSource
+  data={{
+    type: 'FeatureCollection',
+    features: theirSelectedFeatures.filter(
+      (feature) => feature.geometry.type === 'Polygon' || feature.geometry.type === 'LineString'
+    ),
+  }}
+  maxzoom={24}
+>
+  <LineLayer
+    beforeId="background"
+    id="their-selection-layer"
+    paint={{ 'line-color': '#e042ff', 'line-width': 10, 'line-opacity': 0.8 }}
+    layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+  />
+</GeoJSONSource>
+<GeoJSONSource
+  data={{
+    type: 'FeatureCollection',
+    features: theirSelectedFeatures.filter((feature) => feature.geometry.type === 'Polygon'),
+  }}
+  maxzoom={24}
+>
+  <FillLayer id="their-selection-fill-layer" paint={{ 'fill-opacity': 0 }} />
+</GeoJSONSource>
 
 <!-- Draw controls -->
 <div class="controls">
