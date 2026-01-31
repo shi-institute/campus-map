@@ -125,8 +125,8 @@
 <style>
   aside {
     --header-bar-height: 3rem;
-    --blank-space-height: 5rem;
-    --aside-height: calc(var(--map-frame-height) - var(--blank-space-height));
+    --blank-space-height: 5.25rem;
+    --aside-height: calc(var(--map-frame-height) - var(--blank-space-height) - var(--map-top-offset, 0px));
 
     position: relative;
     height: var(--aside-height);

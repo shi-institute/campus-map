@@ -3,6 +3,8 @@
   import { TerraDraw } from '@svelte-maplibre-gl/terradraw';
   import { onDestroy, onMount, tick } from 'svelte';
   import { FillLayer, GeoJSONSource, getMapContext, LineLayer, Marker } from 'svelte-maplibre-gl';
+  import { expoOut } from 'svelte/easing';
+  import { Tween, tweened } from 'svelte/motion';
   import { readable, writable } from 'svelte/store';
   import type { TerraDraw as Draw, TerraDrawEventListeners } from 'terra-draw';
   import {
@@ -14,10 +16,11 @@
     TerraDrawPolygonMode,
     TerraDrawSelectMode,
   } from 'terra-draw';
-  import { EditorDoc } from './editorDoc';
+  import { EditorDoc } from './editorDoc.svelte';
   import {
     convertMapFeatureToTerraDrawOnClick,
     getValidLayerTypes,
+    IdStrategy,
     parseFeatureId,
     recordAddition,
     recordDeletions,
@@ -29,16 +32,21 @@
   const mapCtx = getMapContext();
   if (!mapCtx.map) throw new Error('Map instance is not initialized.');
 
-  const editorDoc = new EditorDoc('test-room');
-  onDestroy(() => {
-    editorDoc.destroy();
-  });
+  let { editorDoc = $bindable(null), showMenu = true }: { editorDoc: EditorDoc | null; showMenu?: boolean } =
+    $props();
+
   onMount(() => {
+    editorDoc = new EditorDoc('test-room');
+
     function handleBeforeUnload(event: BeforeUnloadEvent) {
-      editorDoc.destroy();
+      editorDoc?.destroy();
+      editorDoc = null;
     }
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
+      editorDoc?.destroy();
+      editorDoc = null;
+
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   });
@@ -99,9 +107,9 @@
     new TerraDrawAngledRectangleMode(),
   ]);
   const modeNames = $derived(modes.map((mode) => mode.mode));
-  let mode = $state('select');
-  let selected: string | number | null = $state(null);
-  let draw: Draw | undefined = $state.raw();
+  const mode = $derived(editorDoc?.local.mode ?? 'select');
+  const draw = $derived(editorDoc?.local.draw);
+  const selected = $derived(editorDoc?.local.selected ?? null);
 
   const selectionIsModifiedFeature = $derived.by(() => {
     if (selected === null || !draw) {
@@ -109,32 +117,20 @@
     }
     const { layerId, featureId } = parseFeatureId(selected);
 
-    return editorDoc.trackedEdits[layerId]?.modifiedIds.includes(featureId);
-  });
-
-  // keep the awareness updated with user's selected feature
-  $effect(() => {
-    if (
-      !draw ||
-      typeof selected === 'number' ||
-      (editorDoc.awareness.localUser.selectedLayerFeatureId ?? null) === selected
-    ) {
-      return;
-    }
-    editorDoc.awareness.localUser = {
-      ...editorDoc.awareness.localUser,
-      selectedLayerFeatureId: selected ?? undefined,
-    };
+    return editorDoc?.trackedEdits[layerId]?.modifiedIds.includes(featureId);
   });
 
   // keep the awareness updated with the current mouse cursor lat-long position on the map
   $effect(() => {
-    if (!mapCtx.map) {
+    if (!mapCtx.map || !editorDoc) {
       return;
     }
 
     function updateCursorLatLng(event: maplibregl.MapMouseEvent) {
       const lngLat = event.lngLat;
+      if (!editorDoc) {
+        return;
+      }
       editorDoc.awareness.localUser = { ...editorDoc.awareness.localUser, lngLat };
     }
 
@@ -154,7 +150,7 @@
 
   // convert features to Terra Draw features on click
   $effect(() => {
-    if (draw?.enabled) {
+    if (draw?.enabled && editorDoc) {
       convertMapFeatureToTerraDrawOnClick(mapCtx, editorDoc, draw);
     }
   });
@@ -162,7 +158,7 @@
   // save features in the store so they can be restored if this
   // component is unmounted and remounted
   const recordFeatures = ((featureIds, type, context) => {
-    recordDeletions(editorDoc, featureIds, type, context);
+    if (editorDoc) recordDeletions(editorDoc, featureIds, type, context);
   }) satisfies TerraDrawEventListeners['change'];
 
   /**
@@ -171,13 +167,23 @@
    * This function runs when the user finishes creating or editing a feature.
    */
   const handleFinish = ((id, context) => {
-    mode = 'select';
-    if (!draw) {
+    if (!draw || !editorDoc) {
       return;
     }
+    editorDoc.local.mode = 'select';
 
     // if this is a new feature, record its addition and do nothing more
-    if (layerForNewFeatures && recordAddition(editorDoc, draw, id, context, layerForNewFeatures.id)) {
+    if (layerForNewFeatures) {
+      const additionId = recordAddition(editorDoc, draw, id, context, layerForNewFeatures.id);
+      if (!additionId) {
+        return;
+      }
+      tick().then(() => {
+        if (editorDoc) {
+          editorDoc.local.draw?.selectFeature(additionId);
+          editorDoc.local.selected = additionId;
+        }
+      });
       return;
     }
 
@@ -186,53 +192,33 @@
     // toggle the feature's selection so that other users are notified of the change
     const currentSelection = $state.snapshot(selected);
     if (currentSelection === id) {
-      selected = null;
+      editorDoc.local.selected = null; // this doesn't actually deselect, but triggers reactivity
       tick().then(() => {
-        selected = currentSelection;
+        if (editorDoc) editorDoc.local.selected = currentSelection;
       });
     }
   }) satisfies TerraDrawEventListeners['finish'];
 
   // tell the app to offset the top map controls by the height of the
   // edit controls when the editor is mounted
-  onMount(() => {
-    document.documentElement.style.setProperty('--map-top-offset', '68px');
-    return () => {
-      document.documentElement.style.removeProperty('--map-top-offset');
-    };
-  });
-
-  let isDrawReady = $state(false);
+  const offset = new Tween(0, { duration: 200, easing: expoOut });
   $effect(() => {
-    if (!draw) {
-      return;
-    }
-    if (!isDrawReady && draw.enabled) {
-      isDrawReady = true;
-    }
-    if (isDrawReady && !draw.enabled) {
-      isDrawReady = false;
-
-      // keep checking until draw is re-enabled
-      let timeToWait = 100;
-      const interval = setInterval(() => {
-        if (draw && draw.enabled) {
-          isDrawReady = true;
-          clearInterval(interval);
-        } else {
-          timeToWait *= 2; // exponential backoff
-        }
-      }, timeToWait);
-    }
+    offset.set(showMenu ? 68 : 0);
+  });
+  $effect(() => {
+    document.documentElement.style.setProperty('--map-top-offset', offset.current + 'px');
+  });
+  onDestroy(() => {
+    document.documentElement.style.removeProperty('--map-top-offset');
   });
 
   let updateCounter = $state(0);
 
   $effect(() => {
-    if (editorDoc.ready && isDrawReady) {
+    if (editorDoc?.ready) {
       mapCtx.waitForStyleLoaded(() => {
         if (draw && draw.enabled) {
-          editorDoc.trackedEdits.sync(draw, mapCtx, () => {
+          editorDoc?.trackedEdits.sync(draw, mapCtx, () => {
             updateCounter += 1;
           });
         }
@@ -241,7 +227,7 @@
   });
   onDestroy(() => {
     mapCtx.waitForStyleLoaded((map) => {
-      editorDoc.trackedEdits.layerFilters.reset(map, 'esri');
+      editorDoc?.trackedEdits.layerFilters.reset(map, 'esri');
     });
   });
 
@@ -266,7 +252,7 @@
   }
 
   const globallySelected = $derived.by(() => {
-    if (!draw) {
+    if (!draw || !editorDoc) {
       return { ourSelectedFeatures: [], theirSelectedFeatures: [] };
     }
 
@@ -315,44 +301,34 @@
   );
 </script>
 
-<TerraDraw
-  {mode}
-  {modes}
-  bind:draw
-  onchange={recordFeatures}
-  onselect={(featureId) => {
-    // if the feature is selected by another user, immediately deselect it
-    const selectedByAnotherUser = editorDoc.awareness.users.find(
-      (user) =>
-        user.selectedLayerFeatureId === featureId && user.clientId !== editorDoc.awareness.localUser.clientId
-    );
-    if (selectedByAnotherUser) {
-      setTimeout(() => {
-        draw?.deselectFeature(featureId);
-      }, 0);
-    }
-
-    selected = featureId;
-  }}
-  ondeselect={() => (selected = null)}
-  onfinish={handleFinish}
-  idStrategy={{
-    isValidId: (id) => {
-      try {
-        parseFeatureId(id);
-        return true;
-      } catch {
-        return false;
+{#if editorDoc}
+  <TerraDraw
+    {mode}
+    {modes}
+    bind:draw={editorDoc.local.draw}
+    onchange={recordFeatures}
+    onselect={(featureId) => {
+      // if the feature is selected by another user, immediately deselect it
+      const selectedByAnotherUser = !!editorDoc?.awareness.users.find(
+        (user) =>
+          user.selectedLayerFeatureId === featureId &&
+          user.clientId !== editorDoc?.awareness.localUser.clientId
+      );
+      if (selectedByAnotherUser) {
+        setTimeout(() => {
+          draw?.deselectFeature(featureId);
+        }, 0);
       }
-    },
-    getId: (() => {
-      let _lastMinId = -1;
-      return () => {
-        return `${_lastMinId--}.terra-draw`;
-      };
-    })(),
-  }}
-/>
+
+      if (editorDoc) editorDoc.local.selected = featureId;
+    }}
+    ondeselect={() => {
+      if (editorDoc) editorDoc.local.selected = null;
+    }}
+    onfinish={handleFinish}
+    idStrategy={IdStrategy.create()}
+  />
+{/if}
 
 <!-- show a layer with a teal background to highlight our selected features -->
 <GeoJSONSource
@@ -400,10 +376,10 @@
 </GeoJSONSource>
 
 <!-- Draw controls -->
-<div class="controls">
+<div class="controls" class:hidden={!showMenu}>
   <div class="menubar">
     <strong>Edit</strong>
-    {#if editorDoc.awareness.users}
+    {#if editorDoc?.awareness.users}
       <div class="active-users">
         <strong>Active Users:</strong>
         {#each editorDoc.awareness.users as user (user.clientId)}
@@ -435,15 +411,30 @@
     {/if}
   </div>
   <div class="menu-row">
-    <button disabled={!editorDoc.undoManager.canUndo} onclick={() => editorDoc.undoManager.undo()}>
+    <button
+      disabled={!editorDoc || !editorDoc.undoManager.canUndo}
+      onclick={() => editorDoc?.undoManager.undo()}
+    >
       Undo
     </button>
-    <button disabled={!editorDoc.undoManager.canRedo} onclick={() => editorDoc.undoManager.redo()}>
+    <button
+      disabled={!editorDoc || !editorDoc.undoManager.canRedo}
+      onclick={() => editorDoc?.undoManager.redo()}
+    >
       Redo
     </button>
     {#each modeNames as modeName (modeName)}
       <label>
-        <input type="radio" bind:group={mode} value={modeName} disabled={isControlDisabled(modeName)} />
+        {#if editorDoc}
+          <input
+            type="radio"
+            bind:group={editorDoc.local.mode}
+            value={modeName}
+            disabled={isControlDisabled(modeName)}
+          />
+        {:else}
+          <input type="radio" disabled />
+        {/if}
         {modeName}
       </label>
     {/each}
@@ -463,6 +454,7 @@
         if (!selected) return;
         if (!selectionIsModifiedFeature) return;
         if (!draw) return;
+        if (!editorDoc) return;
         resetFeature(editorDoc, draw, selected);
       }}
     >
@@ -492,6 +484,7 @@
     left: 0;
     right: 0;
     height: var(--map-top-offset);
+    overflow: hidden;
     background: white;
     padding: 0 0.5rem;
     border-radius: 0.25rem;

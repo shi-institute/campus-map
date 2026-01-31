@@ -2,6 +2,7 @@
   import { LeftPane } from '$lib/components';
   import { LogoHeader, Panes, SceneFooter, ThemeSwitcher } from '$lib/map';
   import Editor from '$lib/map/editor/Editor.svelte';
+  import type { EditorDoc } from '$lib/map/editor/editorDoc.svelte';
   import { goBack, goto, route, url } from '$lib/navigation';
   import { rootStyleToPrintStyle } from '$lib/styles/printMapStyles';
   import {
@@ -93,6 +94,10 @@
   let placePaneIsOpen = $state(false);
 
   let visiblePane = $derived.by(() => {
+    if (editorDoc) {
+      return 'editor';
+    }
+
     // if the navigation pane is open, show it
     if ($route.type === 'directions') {
       return 'navigation';
@@ -205,6 +210,38 @@
     }
     goto(newUrl.href, true);
   });
+
+  let editModeWithDelayedForAnimateOut = $state($url.searchParams.get('edit') === 'true');
+  $effect(() => {
+    if (!editModeEnabled) {
+      // delay disabling edit mode for 300ms to allow animate out
+      const timeout = setTimeout(() => {
+        editModeWithDelayedForAnimateOut = false;
+      }, 300);
+      return () => clearTimeout(timeout);
+    } else {
+      editModeWithDelayedForAnimateOut = true;
+    }
+  });
+
+  let editorDoc = $state<EditorDoc | null>(null);
+  const selectedFeature = $derived(editorDoc?.getNormalSelectedFeature());
+
+  // if the user selects a feature in the editor, show the editor pane
+  $effect(() => {
+    if (editorDoc?.local.selected) {
+      visiblePane = 'editor';
+      panesAreMinimized = false;
+    }
+  });
+
+  // show the editor pane whne edit mode is first enabled
+  $effect(() => {
+    if (editModeEnabled) {
+      visiblePane = 'editor';
+      panesAreMinimized = false;
+    }
+  });
 </script>
 
 <div
@@ -264,10 +301,25 @@
       <BackgroundLayer id="background" paint={{ 'background-color': 'rgba(0,0,0,0)' }} />
 
       <LogoHeader />
-      {#if editModeEnabled}
-        <Editor />
+      {#if editModeWithDelayedForAnimateOut}
+        <Editor bind:editorDoc showMenu={editModeEnabled} />
       {/if}
       <CustomControl position="bottom-left" class="pane-control">
+        <LeftPane
+          title={selectedFeature?.label || 'Editor'}
+          {mapFrameHeight}
+          {mapFrameWidth}
+          bind:minimized={panesAreMinimized}
+          open
+          visible={visiblePane === 'editor'}
+          hideCloseButton
+          style="user-select: none;"
+        >
+          <h2>Properties</h2>
+          <pre>{JSON.stringify(selectedFeature?.properties, null, 2)}</pre>
+          <!-- TODO: check which fields exist on a layer. Allow setting arbitrary fields in the cmdata column as binary-encoded json if it exists. -->
+        </LeftPane>
+
         <Panes.Directions
           {mapFrameHeight}
           {mapFrameWidth}

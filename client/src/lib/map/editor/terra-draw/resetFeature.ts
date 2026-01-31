@@ -1,5 +1,5 @@
 import type { TerraDraw, TerraDrawEventListeners } from 'terra-draw';
-import type { EditorDoc } from '../editorDoc';
+import type { EditorDoc } from '../editorDoc.svelte';
 import { parseFeatureId } from './parseFeatureId';
 import { untrackNextDeletion } from './recordDeletions';
 

@@ -1,3 +1,4 @@
+import { getLabelFromProperties } from '$lib/utils';
 import { getCurrentUser } from '$lib/utils/auth';
 import { getFeatureFromService } from '$lib/utils/features';
 import { TrysteroProvider as WebrtcProvider } from '@winstonfassett/y-webrtc-trystero';
@@ -10,6 +11,18 @@ import { SvelteYArray, SvelteYAwareness, SvelteYMap, SvelteYUndoManager } from '
 import { inferMode, normalizeFeature, parseFeatureId } from './terra-draw';
 import { untrackNextDeletion } from './terra-draw/recordDeletions';
 
+interface LocalState {
+  draw: TerraDraw | undefined;
+  /**
+   * The ID of the currently selected layer.
+   * IDs must be in the format `featureId.layerId`.
+   */
+  selected: FeatureId | null;
+  mode: string;
+  /** Whether the current terra draw instance has been enabled at least once. */
+  isDrawReady: boolean;
+}
+
 export class EditorDoc {
   ydoc: Y.Doc;
   #globalMap: SvelteYMap<{}>;
@@ -20,6 +33,8 @@ export class EditorDoc {
   awareness: SvelteYAwareness;
   persistence: IndexeddbPersistence;
   webrtcProvider: WebrtcProvider;
+
+  local = $state<LocalState>({ mode: 'select', selected: null, isDrawReady: false, draw: undefined });
 
   constructor(roomName: string) {
     this.ydoc = new Y.Doc();
@@ -73,6 +88,47 @@ export class EditorDoc {
     this.#readySubscriber = createSubscriber((update) => {
       persistence.once('synced', update);
     });
+
+    // keep the awareness updated with user's selected feature
+    $effect(() => {
+      if (
+        !this.local.draw ||
+        typeof this.local.selected === 'number' ||
+        (this.awareness.localUser.selectedLayerFeatureId ?? null) === this.local.selected
+      ) {
+        return;
+      }
+      this.awareness.localUser = {
+        ...this.awareness.localUser,
+        selectedLayerFeatureId: this.local.selected ?? undefined,
+      };
+    });
+
+    // we need to check whether draw is enabled because
+    // it is not possible to add features to a disabled TerraDraw instance
+    $effect(() => {
+      if (!this.local.draw) {
+        this.local.isDrawReady = false;
+        return;
+      }
+      if (!this.local.isDrawReady && this.local.draw.enabled) {
+        this.local.isDrawReady = true;
+      }
+      if (this.local.isDrawReady && !this.local.draw.enabled) {
+        this.local.isDrawReady = false;
+
+        // keep checking until draw is re-enabled
+        let timeToWait = 100;
+        const interval = setInterval(() => {
+          if (this.local.draw && this.local.draw.enabled) {
+            this.local.isDrawReady = true;
+            clearInterval(interval);
+          } else {
+            timeToWait *= 2; // exponential backoff
+          }
+        }, timeToWait);
+      }
+    });
   }
 
   destroy() {
@@ -84,11 +140,24 @@ export class EditorDoc {
 
   get ready() {
     this.#readySubscriber();
-    return this.persistence.synced;
+    return this.persistence.synced && this.local.isDrawReady;
   }
 
   get trackedEdits() {
     return this.#trackedEdits;
+  }
+
+  getNormalSelectedFeature() {
+    const selected = this.local.selected;
+
+    if (selected === null || !this.local.draw) {
+      return null;
+    }
+
+    const feature = this.local.draw.getSnapshotFeature(selected);
+    const normalFeature = normalizeFeature(feature);
+    const [label] = getLabelFromProperties(normalFeature?.properties || {}, 'Unnamed feature');
+    return { ...normalFeature, label };
   }
 }
 
@@ -277,6 +346,11 @@ class TrackedEdits extends SvelteYMap<{ [layerId: LayerId]: TrackedLayerEdits }>
       }
 
       const terraDrawFeatureId = `${featureId}.${layerId}`;
+      const isBuiltInFeature = layerId === 'terra-draw';
+      if (isBuiltInFeature) {
+        return;
+      }
+
       featuresToReset.push(terraDrawFeatureId);
     });
 

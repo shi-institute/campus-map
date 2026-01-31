@@ -1,4 +1,5 @@
 export { convertMapFeatureToTerraDrawOnClick } from './convertMapFeatureToTerraDrawOnClick.svelte.js';
+export { IdStrategy } from './createIdStrategy.svelte.js';
 export { inferMode } from './inferMode.js';
 export { normalizeFeature } from './normalizeFeature.js';
 export { parseFeatureId } from './parseFeatureId.js';

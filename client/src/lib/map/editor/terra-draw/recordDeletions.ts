@@ -1,5 +1,5 @@
 import type { TerraDrawEventListeners } from 'terra-draw';
-import type { EditorDoc } from '../editorDoc';
+import type { EditorDoc } from '../editorDoc.svelte';
 import { parseFeatureId } from './parseFeatureId';
 
 export const untrackNextDeletion = new Map<FeatureIds[0], true>();

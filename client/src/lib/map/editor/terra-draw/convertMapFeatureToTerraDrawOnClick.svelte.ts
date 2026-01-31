@@ -6,7 +6,7 @@ import {
 } from '$lib/utils/features';
 import type { getMapContext } from 'svelte-maplibre-gl';
 import type { GeoJSONStoreFeatures, TerraDraw } from 'terra-draw';
-import type { EditorDoc } from '../editorDoc';
+import type { EditorDoc } from '../editorDoc.svelte';
 import { inferMode } from './inferMode';
 import { normalizeFeature } from './normalizeFeature';
 
