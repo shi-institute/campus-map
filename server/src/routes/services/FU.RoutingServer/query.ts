@@ -7,6 +7,7 @@ import {
   routingDatabasePool,
 } from '../../../utils/index.js';
 import { requireToken } from '../../auth/index.js';
+import { QueryResult } from 'pg';
 
 export default (router: Router) => {
   if (process.env.NODE_ENV !== 'development') {
@@ -66,7 +67,38 @@ export default (router: Router) => {
     await (async () => {
       const client = await routingDatabasePool.connect();
       try {
-        const res = await client.query(finalizedSql);
+        const parts = finalizedSql.split('--<break-query>').map(part => part.trim());
+        if (parts.length < 1) {
+          throw new Error('No query parts found.')
+        }
+        let res: QueryResult | null = null;
+
+        // Since we might need to create temporary tables,
+        // we have split each distinct part of the incoming query.
+        // Each part is run after BEGIN, which means if there is an
+        // error at any step, we can ROLLBACK. Otherwise, we COMMIT
+        // after each step runs successfully.
+        await client.query('BEGIN');
+        for await (const sqlPart of parts) {
+          // run the query part
+          const partResult = await client.query(sqlPart);
+
+          // If part contains a SELECT statement, we want to expose
+          // the returned rows. Otherwise, there is nothing to return.
+          // With this logic, we could have a SELECT statement in the
+          // second-to-last part and a DROP TABLE in the last part, and
+          // we would get the second-to-last part's SELECT result instead
+          // of empty rows from the DROP TABLE.
+          const containsSelect = sqlPart.toUpperCase().includes('SELECT');
+          if (containsSelect) {
+            res = partResult
+          }
+        }
+        await client.query('COMMIT')
+
+        if (!res) {
+          throw new Error('Query result is missing.')
+        }
 
         if (!res.rows || res.rows.length === 0) {
           throw new Error('No rows returned from the query.');
@@ -95,6 +127,7 @@ export default (router: Router) => {
       } catch (error) {
         throw error;
       } finally {
+        await client.query('ROLLBACK');
         client.release();
       }
     })()
