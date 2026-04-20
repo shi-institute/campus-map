@@ -68,9 +68,11 @@ RUN sudo -u postgres /usr/lib/postgresql/18/bin/pg_ctl -D $PGDATA -o "-c listen_
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -c "CREATE USER ${POSTGRES_USER} PASSWORD '${POSTGRES_PASSWORD}';" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -c "CREATE DATABASE ${DATA_DB} OWNER ${POSTGRES_USER};" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -d ${DATA_DB} -c "CREATE EXTENSION postgis;" \
+    && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -d ${DATA_DB} -c "GRANT INSERT, UPDATE ON TABLE spatial_ref_sys TO ${POSTGRES_USER};" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -c "CREATE DATABASE ${ROUTING_DB} OWNER ${POSTGRES_USER};" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -d ${ROUTING_DB} -c "CREATE EXTENSION postgis;" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -d ${ROUTING_DB} -c "CREATE EXTENSION pgRouting;" \
+    && sudo -u postgres /usr/lib/postgresql/18/bin/psql -U postgres -d ${ROUTING_DB} -c "GRANT INSERT, UPDATE ON TABLE spatial_ref_sys TO ${POSTGRES_USER};" \
     && sudo -u postgres /usr/lib/postgresql/18/bin/pg_ctl -D $PGDATA -m fast stop
 
 # copy over client application files
