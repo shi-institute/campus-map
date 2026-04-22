@@ -64,73 +64,7 @@ export default (router: Router) => {
     );
 
     // execute the query against the routing database
-    await (async () => {
-      const client = await routingDatabasePool.connect();
-      try {
-        const parts = finalizedSql.split('--<break-query>').map(part => part.trim());
-        if (parts.length < 1) {
-          throw new Error('No query parts found.')
-        }
-        let res: QueryResult | null = null;
-
-        // Since we might need to create temporary tables,
-        // we have split each distinct part of the incoming query.
-        // Each part is run after BEGIN, which means if there is an
-        // error at any step, we can ROLLBACK. Otherwise, we COMMIT
-        // after each step runs successfully.
-        await client.query('BEGIN');
-        for await (const sqlPart of parts) {
-          // run the query part
-          const partResult = await client.query(sqlPart);
-
-          // If part contains a SELECT statement, we want to expose
-          // the returned rows. Otherwise, there is nothing to return.
-          // With this logic, we could have a SELECT statement in the
-          // second-to-last part and a DROP TABLE in the last part, and
-          // we would get the second-to-last part's SELECT result instead
-          // of empty rows from the DROP TABLE.
-          const containsSelect = sqlPart.toUpperCase().includes('SELECT');
-          if (containsSelect) {
-            res = partResult
-          }
-        }
-        await client.query('COMMIT')
-
-        if (!res) {
-          throw new Error('Query result is missing.')
-        }
-
-        if (!res.rows || res.rows.length === 0) {
-          throw new Error('No rows returned from the query.');
-        }
-
-        if (!shouldConvertToFeatureCollection) {
-          return { table: res.rows };
-        }
-
-        // convert rows to GeoJSON FeatureCollection
-        const features = res.rows.map(
-          ({ geometry, ...properties }) =>
-            ({
-              type: 'Feature',
-              geometry,
-              properties,
-            } as GeoJSON.Feature)
-        );
-
-        const featureCollection: GeoJSON.FeatureCollection = {
-          type: 'FeatureCollection',
-          features,
-        };
-
-        return { featureCollection };
-      } catch (error) {
-        throw error;
-      } finally {
-        await client.query('ROLLBACK');
-        client.release();
-      }
-    })()
+    await executeSplitQuery(finalizedSql, shouldConvertToFeatureCollection)
       .then((data) => {
         if (format === 'html') {
           ctx.type = 'text/html';
@@ -265,7 +199,7 @@ function generateQueryHtml(ctx: Context, values: QueryValues, result: Result = {
         require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
         require(['vs/editor/editor.main'], function() {
           window.editor = monaco.editor.create(document.getElementById('monaco-query-editor'), {
-            value: \`${query || vertexRoutingQuery}\`,
+            value: \`${query || pointToPointRoutingQuery('geojson')}\`,
             language: 'sql',
             theme: 'vs-light',
             automaticLayout: true
@@ -335,7 +269,7 @@ function generateQueryHtml(ctx: Context, values: QueryValues, result: Result = {
             });
           }
 
-          syncInputs(\`${query || vertexRoutingQuery}\`);
+          syncInputs(\`${query || pointToPointRoutingQuery('geojson')}\`);
           window.editor.getModel().onDidChangeContent((event) => {
             const currentSql = window.editor.getValue();
             syncInputs(currentSql);
@@ -448,6 +382,7 @@ function generateQueryHtml(ctx: Context, values: QueryValues, result: Result = {
   import MapView from "https://js.arcgis.com/4.34/@arcgis/core/views/MapView.js";
 
   const geojsonObject = ${JSON.stringify(result.featureCollection)};
+  console.log(geojsonObject);
 
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(geojsonObject)], { type: "application/json" })
@@ -555,3 +490,378 @@ WHERE route.edge <> -1
 -- Ensure the result is ordered sequentially from start to end
 ORDER BY route.seq;
 `;
+
+
+export const pointToPointRoutingQuery = (format: 'table' | 'geojson') => `-- Create a temporary table with the modified edges
+CREATE TEMPORARY TABLE edges_final_tmp AS
+WITH edges_final_result AS (
+  WITH
+    -- Step 1. Transform the provided start coordinates to the SRID of the edges table
+    start_point AS (
+      SELECT ST_Force3DZ(
+        ST_Transform(
+          ST_SetSRID(ST_MakePoint($startLongitude, $startLatitude), $startSRID),
+          (SELECT Find_SRID('public', 'edges', 'geom'))
+        )
+      ) AS geom
+    ),
+
+    -- Step 2. Find the closest edge to the provided start coordinates
+    closest_start_edge AS (
+      SELECT id, geom, start_vertex, end_vertex
+      FROM edges
+      ORDER BY geom <-> (SELECT geom FROM start_point)
+      LIMIT 1
+    ),
+
+    -- Step 3a. Calculate the fraction where the start point projects onto the closest edge
+    closest_start_edge_split_fraction AS (
+      SELECT ST_LineLocatePoint(
+        (SELECT geom FROM closest_start_edge),
+        (SELECT geom FROM start_point)
+      ) AS fraction
+    ),
+
+    -- Step 3b. Find the closest point on the closest edge to the start point
+    closest_start_edge_midpoint AS (
+      SELECT ST_LineInterpolatePoint(
+        (SELECT geom FROM closest_start_edge),
+        (SELECT fraction FROM closest_start_edge_split_fraction)
+      ) AS geom
+    ),
+
+    -- Step 4. Find if a vertex already exists at closest_start_edge_midpoint
+    existing_start_vertex AS (
+      SELECT id, geom
+      FROM vertices
+      WHERE ST_Equals(geom, (SELECT geom FROM closest_start_edge_midpoint))
+      LIMIT 1
+    ),
+
+    -- Step 5. Create in-memory copies of the vertices and edges tables
+    vertices_copy AS (
+      SELECT id, geom FROM vertices
+    ),
+    edges_copy AS (
+      SELECT id, geom, start_vertex, end_vertex, cost__distance, reverse_cost__distance FROM edges
+    ),
+
+    -- Step 6. Add closest_start_edge_midpoint to vertices_copy
+    vertices_copy_with_start_midpoint AS (
+      SELECT id, geom FROM vertices_copy
+      UNION ALL
+      SELECT
+        -11 AS id,
+        (SELECT geom FROM closest_start_edge_midpoint) AS geom
+    ),
+
+    -- Step 7. Split closest_start_edge at closest_start_edge_midpoint.
+    -- 
+    --  Note: We use the split fraction to avoid floating-point errors
+    --        that occur when splitting with closest_start_edge_midpoint.
+    split_start_edge AS (
+      SELECT ST_LineSubstring(
+        (SELECT geom FROM closest_start_edge),
+        0,
+        (SELECT fraction FROM closest_start_edge_split_fraction)
+      ) AS geom
+      UNION ALL
+      SELECT ST_LineSubstring(
+        (SELECT geom FROM closest_start_edge),
+        (SELECT fraction FROM closest_start_edge_split_fraction),
+        1
+      ) AS geom
+    ),
+
+    -- Step 8. Replace closest_start_edge in edges_copy with the two split edges
+    edges_copy_with_start_split AS (
+      SELECT id, geom, start_vertex, end_vertex, cost__distance, reverse_cost__distance FROM edges_copy
+      WHERE id != (SELECT id FROM closest_start_edge)
+      UNION ALL
+      SELECT
+        CASE WHEN ROW_NUMBER() OVER () = 1 THEN -11 ELSE -12 END AS id,
+        geom,
+        CASE WHEN ROW_NUMBER() OVER () = 1 
+          THEN (SELECT start_vertex FROM closest_start_edge)
+          ELSE -11 
+        END AS start_vertex,
+        CASE WHEN ROW_NUMBER() OVER () = 1 
+          THEN -11
+          ELSE (SELECT end_vertex FROM closest_start_edge)
+        END AS end_vertex,
+        0,
+        0
+      FROM split_start_edge
+    ),
+
+    -- Step 9. Draw a line from start_point to closest_start_edge_midpoint
+    start_to_midpoint_line AS (
+      SELECT ST_MakeLine(
+        (SELECT geom FROM start_point),
+        (SELECT geom FROM closest_start_edge_midpoint)
+      ) AS geom
+    ),
+
+    -- Step 10. Add start_point as a vertex and the new line as an edge to the copies
+    vertices_after_start AS (
+      SELECT id, geom FROM vertices_copy_with_start_midpoint
+      UNION ALL
+      SELECT
+        -12 AS id,
+        (SELECT geom FROM start_point) AS geom
+    ),
+    edges_after_start AS (
+      SELECT id, geom, start_vertex, end_vertex, cost__distance, reverse_cost__distance FROM edges_copy_with_start_split
+      UNION ALL
+      SELECT
+        -13 AS id,
+        (SELECT geom FROM start_to_midpoint_line) AS geom,
+        -12, -- id for start point vertex
+        -11, -- id for closest midpoint vertex
+        0,
+        0
+    ),
+
+    -- Step 11. Transform the provided end coordinates to the SRID of the edges table
+    end_point AS (
+      SELECT ST_Transform(
+        ST_SetSRID(ST_MakePoint($endLongitude, $endLatitude), $endSRID),
+        (SELECT Find_SRID('public', 'edges', 'geom'))
+      ) AS geom
+    ),
+
+    -- Step 12. Find the closest edge to the provided end coordinates
+    closest_end_edge AS (
+      SELECT id, geom, start_vertex, end_vertex
+      FROM edges
+      ORDER BY geom <-> (SELECT geom FROM end_point)
+      LIMIT 1
+    ),
+
+    -- Step 13a. Calculate the fraction where the end point projects onto the closest edge
+    closest_end_edge_split_fraction AS (
+      SELECT ST_LineLocatePoint(
+        (SELECT geom FROM closest_end_edge),
+        (SELECT geom FROM end_point)
+      ) AS fraction
+    ),
+
+    -- Step 13b. Find the closest point on the closest edge to the end point
+    closest_end_edge_midpoint AS (
+      SELECT ST_LineInterpolatePoint(
+        (SELECT geom FROM closest_end_edge),
+        (SELECT fraction FROM closest_end_edge_split_fraction)
+      ) AS geom
+    ),
+
+    -- Step 14. Find if a vertex already exists at closest_end_edge_midpoint
+    existing_end_vertex AS (
+      SELECT id, geom
+      FROM vertices
+      WHERE ST_Equals(geom, (SELECT geom FROM closest_end_edge_midpoint))
+      LIMIT 1
+    ),
+
+    -- Step 15. Use the in-memory copies from step 5 (already created above)
+
+    -- Step 16. Add closest_end_edge_midpoint to vertices_after_start
+    vertices_copy_with_end_midpoint AS (
+      SELECT id, geom FROM vertices_after_start
+      UNION ALL
+      SELECT
+        -14 AS id,
+        (SELECT geom FROM closest_end_edge_midpoint) AS geom
+    ),
+
+    -- Step 17. Split closest_end_edge at closest_end_edge_midpoint
+    -- 
+    --  Note: We use the split fraction to avoid floating-point errors
+    --        that occur when splitting with closest_end_edge_midpoint.
+    split_end_edge AS (
+      SELECT ST_LineSubstring(
+        (SELECT geom FROM closest_end_edge),
+        0,
+        (SELECT fraction FROM closest_end_edge_split_fraction)
+      ) AS geom
+      UNION ALL
+      SELECT ST_LineSubstring(
+        (SELECT geom FROM closest_end_edge),
+        (SELECT fraction FROM closest_end_edge_split_fraction),
+        1
+      ) AS geom
+    ),
+
+    -- Step 18. Replace closest_end_edge in edges_after_start with the two split edges
+    edges_copy_with_end_split AS (
+      SELECT id, geom, start_vertex, end_vertex, cost__distance, reverse_cost__distance FROM edges_after_start
+      WHERE id != (SELECT id FROM closest_end_edge)
+      UNION ALL
+      SELECT
+        CASE WHEN ROW_NUMBER() OVER () = 1 THEN -14 ELSE -15 END AS id,
+        geom,
+        CASE WHEN ROW_NUMBER() OVER () = 1 
+          THEN (SELECT start_vertex FROM closest_end_edge)
+          ELSE -14 
+        END AS start_vertex,
+        CASE WHEN ROW_NUMBER() OVER () = 1 
+          THEN -14
+          ELSE (SELECT end_vertex FROM closest_end_edge)
+        END AS end_vertex,
+        0,
+        0
+      FROM split_end_edge
+    ),
+
+    -- Step 19. Draw a line from end_point to closest_end_edge_midpoint
+    end_to_midpoint_line AS (
+      SELECT ST_MakeLine(
+        (SELECT geom FROM end_point),
+        (SELECT geom FROM closest_end_edge_midpoint)
+      ) AS geom
+    ),
+
+    -- Step 20. Add end_point as a vertex and the new line as an edge to the copies
+    vertices_final AS (
+      SELECT id, geom FROM vertices_copy_with_end_midpoint
+      UNION ALL
+      SELECT
+        -15 AS id,
+        (SELECT geom FROM end_point) AS geom
+    ),
+    edges_final AS (
+      SELECT id, geom, start_vertex, end_vertex, cost__distance, reverse_cost__distance FROM edges_copy_with_end_split
+      UNION ALL
+      SELECT
+        -16 AS id,
+        (SELECT geom FROM end_to_midpoint_line) AS geom,
+        -15, -- id for end point vertex
+        -14, -- id for closest midpoint vertex
+        0,
+        0
+    )
+  SELECT * from edges_final
+)
+SELECT * FROM edges_final_result;
+
+--<break-query>
+
+-- Step 21. Compute the shortest path between the two vertices
+WITH route as (
+  SELECT *
+    -- Use Dijkstra's algorithm to find the shortest path
+    FROM pgr_dijkstra(
+      -- Convert columns from the edges table into the format expected by pgRouting
+      'SELECT 
+          id AS id, 
+          start_vertex AS source, 
+          end_vertex AS target, 
+          cost__distance AS cost, 
+          reverse_cost__distance AS reverse_cost 
+        FROM edges_final_tmp',
+      -- The created start vertex
+      -12,
+      -- The created end vertex
+      -15,
+      -- Indicates that reverse_cost must be present in order
+      -- for an edge to be traversed in the reverse direction
+      -- (treat missing reverse_cost as a one-way street/path)
+      directed := true
+    )
+)
+
+-- Step 22. Return the resulting route with geometries
+SELECT
+  route.seq AS step,
+  edges_final_tmp.id AS edge_id,
+  route.node AS edge_end_vertex_id,
+  route.cost AS edge_cost,
+  -- Convert the geometry output into GeoJSON format
+  -- for easy display on web maps
+ ${format === 'table' ? 'edges_final_tmp.geom' : 'ST_AsGeoJSON(edges_final_tmp.geom)::jsonb'} AS geometry
+
+FROM route
+
+-- Join the pgr_dijkstra results (which are just IDs) back to the 'edges_final_tmp' 
+-- table to retrieve the line geometries
+JOIN edges_final_tmp
+  ON edges_final_tmp.id = route.edge
+
+-- pgRouting adds a 'final' row with edge = -1 to represent the destination node.
+-- We filter this out because -1 doesn't exist in our 'edges_final_tmp' table and 
+-- has no geometry to draw.
+WHERE route.edge <> -1
+
+-- Ensure the result is ordered sequentially from start to end
+ORDER BY route.seq;
+
+--<break-query>
+
+DROP TABLE IF EXISTS edges_final_tmp;`
+
+export async function executeSplitQuery(sql: string, shouldConvertToFeatureCollection = false) {
+  const client = await routingDatabasePool.connect();
+  try {
+    const parts = sql.split('--<break-query>').map(part => part.trim());
+    if (parts.length < 1) {
+      throw new Error('No query parts found.')
+    }
+    let res: QueryResult | null = null;
+
+    // Since we might need to create temporary tables,
+    // we have split each distinct part of the incoming query.
+    // Each part is run after BEGIN, which means if there is an
+    // error at any step, we can ROLLBACK. Otherwise, we COMMIT
+    // after each step runs successfully.
+    await client.query('BEGIN');
+    for await (const sqlPart of parts) {
+      // run the query part
+      const partResult = await client.query(sqlPart);
+
+      // If part contains a SELECT statement, we want to expose
+      // the returned rows. Otherwise, there is nothing to return.
+      // With this logic, we could have a SELECT statement in the
+      // second-to-last part and a DROP TABLE in the last part, and
+      // we would get the second-to-last part's SELECT result instead
+      // of empty rows from the DROP TABLE.
+      const containsSelect = sqlPart.toUpperCase().includes('SELECT');
+      if (containsSelect) {
+        res = partResult
+      }
+    }
+    await client.query('COMMIT')
+
+    if (!res) {
+      throw new Error('Query result is missing.')
+    }
+
+    if (!res.rows || res.rows.length === 0) {
+      throw new Error('No rows returned from the query.');
+    }
+
+    if (!shouldConvertToFeatureCollection) {
+      return { table: res.rows };
+    }
+
+    // convert rows to GeoJSON FeatureCollection
+    const features = res.rows.map(
+      ({ geometry, ...properties }) =>
+        ({
+          type: 'Feature',
+          geometry,
+          properties,
+        } as GeoJSON.Feature)
+    );
+
+    const featureCollection: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features,
+    };
+
+    return { featureCollection };
+  } catch (error) {
+    throw error;
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+}
