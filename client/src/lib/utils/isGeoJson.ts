@@ -9,7 +9,7 @@ type AllowedGeometry =
   | GeoJSON.MultiPolygon;
 type AllowedFeature = GeoJSON.Feature<AllowedGeometry>;
 
-const geoJsonPositionSchema = z.number().array().length(2) satisfies z.ZodType<GeoJSON.Position>;
+const geoJsonPositionSchema = z.union([z.number().array().length(2), z.number().array().length(3)]) satisfies z.ZodType<GeoJSON.Position>;
 
 const geoJsonLineStringSchema = z.looseObject({
   type: z.literal('Feature'),

@@ -8,7 +8,7 @@ import {
   jsonToArcGisHtml,
   routingDatabasePool,
 } from '../../../utils/index.js';
-import registerQueryRoute from './query.js';
+import registerQueryRoute, { executeSplitQuery, pointToPointRoutingQuery } from './query.js';
 
 export default (router: Router, serviceFolder: string, serviceRootPathname: string) => {
   // serve FU.RoutingServer.json
@@ -124,79 +124,20 @@ async function solveRoute(
 ) {
   const srid = parseInt(crs.replace('EPSG:', ''), 10);
 
-  const sql = `
-    WITH
-      closest_start_vertex AS (
-        SELECT id
-        FROM vertices
-        ORDER BY geom <-> ST_Transform(
-          ST_SetSRID(ST_MakePoint($1, $2), $3),
-          (SELECT Find_SRID('public', 'edges', 'geom'))
-        )
-        LIMIT 1
-      ),
-      closest_end_vertex AS (
-        SELECT id
-        FROM vertices
-        ORDER BY geom <-> ST_Transform(
-          ST_SetSRID(ST_MakePoint($4, $5), $6),
-          (SELECT Find_SRID('public', 'edges', 'geom'))
-        )
-        LIMIT 1
-      ),
-      route AS (
-        SELECT *
-        FROM pgr_dijkstra(
-          'SELECT 
-             id AS id, 
-             start_vertex AS source, 
-             end_vertex AS target, 
-             cost__distance AS cost, 
-             reverse_cost__distance AS reverse_cost 
-           FROM edges',
-          (SELECT id FROM closest_start_vertex),
-          (SELECT id FROM closest_end_vertex),
-          directed := true
-        )
-      )
-    SELECT
-      route.seq AS step,
-      edges.id AS edge_id,
-      route.node AS edge_end_vertex_id,
-      route.cost AS edge_cost,
-      ${format === 'table' ? 'edges.geom' : 'ST_AsGeoJSON(edges.geom)::jsonb'} AS geometry
-    FROM route
-    JOIN edges
-      ON edges.id = route.edge
-    WHERE route.edge <> -1
-    ORDER BY route.seq;
-  `;
+  const variableValues: Record<`$${string}`, string | number> = {
+    '$startLongitude': startX,
+    '$startLatitude': startY,
+    '$startSRID': srid,
+    '$endLongitude': endX,
+    '$endLatitude': endY,
+    '$endSRID': srid,
+  };
 
-  const values = [startX, startY, srid, endX, endY, srid];
+  // replace variables in the SQL query
+  const sql = Object.entries(variableValues).reduce(
+    (accSql, [varName, varValue]) => accSql.replaceAll(varName, varValue.toString()),
+    pointToPointRoutingQuery(format)
+  );
 
-  const client = await routingDatabasePool.connect();
-
-  try {
-    const res = await client.query(sql, values);
-
-    if (format === 'table') {
-      return res.rows;
-    }
-
-    // convert rows to GeoJSON FeatureCollection
-    const features = res.rows.map(({ geometry, ...properties }) => ({
-      type: 'Feature',
-      geometry,
-      properties,
-    }));
-
-    const featureCollection = {
-      type: 'FeatureCollection',
-      features,
-    };
-
-    return featureCollection;
-  } finally {
-    client.release();
-  }
+  return executeSplitQuery(sql, format === 'geojson').then(result => result.featureCollection)
 }
